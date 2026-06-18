@@ -2,7 +2,7 @@
   "name": "techyworldai",
   "version": "1.0.0",
   "private": true,
-  "homepage": "https://techyworldai.github.io",
+  "homepage": "https://github.io",
   "type": "module",
   "scripts": {
     "dev": "vite",

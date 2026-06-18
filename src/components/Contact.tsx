@@ -10,9 +10,9 @@ interface FormData {
 const INITIAL_FORM: FormData = { name: "", email: "", service: "", message: "" };
 
 const CONTACT_DETAILS = [
-  { icon: "📍", label: "Nairobi, Kenya" },
-  { icon: "📧", label: "hello@techyworldai.com" },
-  { icon: "📞", label: "+254 700 000 000" },
+  { icon: "", label: "Nairobi, Kenya" },
+  { icon: "", label: "info@techyworldai.com" },
+  { icon: "", label: "+254 706 384 510" },
 ];
 
 const lineInput: React.CSSProperties = {
