@@ -2,7 +2,7 @@ import { ServiceItem } from "./types";
 
 export const ADMIN_PIN = "tw2024";
 
-export const NAV_LINKS = ["Services", "Work", "Stories", "Contact"] as const;
+export const NAV_LINKS = ["Services", "Works", "Stories", "Contact"] as const;
 
 export const PLATFORM_COLORS: Record<string, string> = {
   linkedin:  "#0A66C2",

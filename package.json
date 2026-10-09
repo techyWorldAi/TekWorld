@@ -1,8 +1,8 @@
 {
-  "name": "techyworldai",
+  "name": "tekworld",
   "version": "1.0.0",
   "private": true,
-  "homepage": "https://techyworldai.github.io",
+  "homepage": "https://tekworld.com",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,8 +13,10 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "firebase": "^13.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.7.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

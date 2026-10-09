@@ -20,7 +20,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 40, light = false }) => {
       viewBox="0 0 80 80"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="TechyWorldAI logo"
+      aria-label="TekWorld logo"
     >
       {/* Outer hexagon */}
       <polygon

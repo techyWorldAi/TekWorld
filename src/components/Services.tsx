@@ -8,9 +8,10 @@ interface ServiceCardProps {
   service: ServiceItem;
   delay: number;
   inView: boolean;
+  isMobile: boolean;
 }
 
-const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => {
+const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView, isMobile }) => {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -19,7 +20,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => 
       onMouseLeave={() => setHovered(false)}
       style={{
         background: hovered ? "#0d0d0d" : "#ffffff",
-        padding: "48px 40px",
+        padding: isMobile ? "28px 20px" : "48px 40px",
         opacity: inView ? 1 : 0,
         transform: inView ? "translateY(0)" : "translateY(28px)",
         transition: `
@@ -31,7 +32,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => 
       }}
     >
       {/* Tag + Price */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32, gap: 12 }}>
         <span style={{
           fontFamily: "system-ui, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "3px",
           color: hovered ? "rgba(255,255,255,0.4)" : "#aaaaaa",
@@ -53,7 +54,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => 
 
       {/* Title */}
       <h3 style={{
-        fontFamily: "Georgia, serif", fontSize: 26, fontWeight: 700, lineHeight: 1.2,
+        fontFamily: "Georgia, serif", fontSize: isMobile ? 22 : 26, fontWeight: 700, lineHeight: 1.2,
         color: hovered ? "#ffffff" : "#0d0d0d", margin: "0 0 16px",
         transition: "color 0.35s",
       }}>
@@ -62,7 +63,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => 
 
       {/* Desc */}
       <p style={{
-        fontFamily: "system-ui, sans-serif", fontSize: 14, lineHeight: 1.75,
+        fontFamily: "system-ui, sans-serif", fontSize: isMobile ? 13 : 14, lineHeight: 1.75,
         color: hovered ? "rgba(255,255,255,0.5)" : "#777777", margin: "0 0 32px",
         transition: "color 0.35s",
       }}>
@@ -92,22 +93,29 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView }) => 
 /* ── Services section ────────────────────────────── */
 export const Services: React.FC = () => {
   const [ref, inView] = useInView();
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   return (
-    <section id="services" style={{ background: "#ffffff", padding: "120px 40px" }}>
+    <section id="services" style={{ background: "#ffffff", padding: isMobile ? "80px 20px" : "120px 40px" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 80, flexWrap: "wrap", gap: 32 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: isMobile ? 40 : 80, flexWrap: "wrap", gap: 32 }}>
           <div>
             <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "4px", color: "#aaaaaa", fontWeight: 600, marginBottom: 16 }}>
               WHAT WE DO
             </p>
-            <h2 style={{ fontFamily: "Georgia, serif", fontSize: "clamp(36px, 5vw, 64px)", fontWeight: 700, color: "#0d0d0d", lineHeight: 1.1 }}>
+            <h2 style={{ fontFamily: "Georgia, serif", fontSize: isMobile ? "clamp(30px, 10vw, 42px)" : "clamp(36px, 5vw, 64px)", fontWeight: 700, color: "#0d0d0d", lineHeight: 1.1 }}>
               Services Built<br />for the AI Age.
             </h2>
           </div>
-          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#888888", maxWidth: 320, lineHeight: 1.75, textAlign: "right" }}>
+          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#888888", maxWidth: 320, lineHeight: 1.75, textAlign: isMobile ? "left" : "right" }}>
             Every service is designed to move your business forward — not just digitally, but intelligently.
           </p>
         </div>
@@ -117,13 +125,13 @@ export const Services: React.FC = () => {
           ref={ref}
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 1,
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: isMobile ? 12 : 1,
             background: "#e8e8e8",
           }}
         >
           {SERVICES.map((s, i) => (
-            <ServiceCard key={s.id} service={s} delay={i * 90} inView={inView} />
+            <ServiceCard key={s.id} service={s} delay={i * 90} inView={inView} isMobile={isMobile} />
           ))}
         </div>
       </div>

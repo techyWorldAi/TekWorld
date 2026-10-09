@@ -1,168 +1,211 @@
 import React, { useEffect, useState } from "react";
 
-const WORDS = ["SMARTER.", "FASTER.", "AI-READY.", "UNSTOPPABLE."];
-
 const STATS = [
-  { value: "50+",     label: "Businesses Served" },
-  { value: "4",       label: "Core Services" },
-  { value: "98%",     label: "Client Retention" },
+  { value: "50+", label: "Businesses Served" },
+  { value: "4", label: "Core Services" },
+  { value: "98%", label: "Client Retention" },
   { value: "Nairobi", label: "HQ, Kenya" },
 ];
 
 export const Hero: React.FC = () => {
-  const [index, setIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
+  const [isCompact, setIsCompact] = useState(() => window.innerWidth <= 900);
+  const [isShort, setIsShort] = useState(() => window.innerHeight <= 680);
+  const [headlineVisible, setHeadlineVisible] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setVisible(false);
-      setTimeout(() => {
-        setIndex((i) => (i + 1) % WORDS.length);
-        setVisible(true);
-      }, 380);
-    }, 2600);
-    return () => clearInterval(timer);
+    const onResize = () => {
+      setIsCompact(window.innerWidth <= 900);
+      setIsShort(window.innerHeight <= 680);
+    };
+    window.addEventListener("resize", onResize);
+    const headlineTimer = window.setTimeout(() => setHeadlineVisible(true), 100);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(headlineTimer);
+    };
   }, []);
 
   return (
     <section
       style={{
-        minHeight: "100vh",
-        background: "#0d0d0d",
+        height: "100svh",
+        minHeight: "100svh",
+        backgroundColor: "#0d0d0d",
+        backgroundImage: `linear-gradient(rgba(13,13,13,0.18), rgba(13,13,13,0.18)), url('${import.meta.env.BASE_URL}Smarter%20Tools,%20Bigger%20Possibilities.png')`,
+        backgroundSize: "auto, 100% 100%",
+        backgroundPosition: "center, center center",
+        backgroundRepeat: "no-repeat",
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
+        justifyContent: "space-between",
+        boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        padding: "120px 40px 80px",
+        padding: isCompact ? `${isShort ? 76 : 88}px 20px ${isShort ? 16 : 24}px` : "96px 40px 36px",
       }}
     >
-      {/* Grid overlay */}
       <div
         className="grid-overlay"
-        style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0, opacity: 0.35 }}
       />
-
-      {/* Subtle vertical rule lines */}
       <div style={{ position: "absolute", top: 0, bottom: 0, right: "20%", width: 1, background: "rgba(255,255,255,0.055)", pointerEvents: "none" }} />
       <div style={{ position: "absolute", top: 0, bottom: 0, right: "40%", width: 1, background: "rgba(255,255,255,0.03)", pointerEvents: "none" }} />
 
-      <div style={{ maxWidth: 1280, margin: "0 auto", width: "100%", position: "relative" }}>
+      <div
+        style={{
+          maxWidth: 1400,
+          width: "100%",
+          margin: isCompact ? "0 auto auto" : "18px auto auto",
+          position: "relative",
+          zIndex: 1,
+        }}
+      >
+        <div style={{ maxWidth: isCompact ? 640 : 940 }}>
+          <p
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "7px 12px",
+              margin: `0 0 ${isShort ? 12 : 20}px`,
+              border: "1px solid rgba(255,255,255,0.2)",
+              color: "rgba(255,255,255,0.78)",
+              fontFamily: "system-ui, sans-serif",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "2.5px",
+              lineHeight: 1.4,
+            }}
+          >
+            <span style={{ width: 5, height: 5, background: "#168cff", borderRadius: "50%" }} />
+            DIGITAL PRESENCE, REIMAGINED
+          </p>
 
-        {/* Status badge */}
-        <div
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 10,
-            border: "1px solid rgba(255,255,255,0.13)",
-            padding: "8px 20px", marginBottom: 48,
-          }}
-        >
-          <span
-            className="animate-pulse-dot"
-            style={{ width: 6, height: 6, background: "#ffffff", display: "block", flexShrink: 0 }}
-          />
-          <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "3.5px", color: "rgba(255,255,255,0.52)", fontWeight: 600 }}>
-            BRIDGING THE AI GAP
-          </span>
+          <h1
+            style={{
+              fontFamily: "Georgia, serif",
+              fontSize: isCompact ? "clamp(30px, 6.2svh, 60px)" : "clamp(48px, 5.5vw, 88px)",
+              fontWeight: 700,
+              color: "#ffffff",
+              lineHeight: 0.98,
+              letterSpacing: isCompact ? "-1.4px" : "-2px",
+              margin: 0,
+              textShadow: "0 3px 28px rgba(0,0,0,0.55)",
+              textTransform: "uppercase",
+            }}
+          >
+            Build an online
+            <br />
+            <span style={{ color: "rgba(255,255,255,0.42)" }}>presence </span>
+            <span
+              style={{
+                display: "inline-block",
+                borderBottom: "3px solid rgba(255,255,255,0.88)",
+                paddingBottom: 4,
+                opacity: headlineVisible ? 1 : 0,
+                transform: headlineVisible ? "translateY(0)" : "translateY(10px)",
+                transition: "opacity 0.35s ease, transform 0.35s ease",
+              }}
+            >
+              that stands out.
+            </span>
+          </h1>
+
+          <p
+            style={{
+              fontFamily: "system-ui, sans-serif",
+              fontSize: isShort ? 13 : isCompact ? 14 : 16,
+              fontWeight: 400,
+              lineHeight: isShort ? 1.5 : 1.65,
+              color: "rgba(255,255,255,0.82)",
+              maxWidth: 540,
+              margin: `${isShort ? 12 : 20}px 0 ${isShort ? 14 : 24}px`,
+            }}
+          >
+            We create distinctive digital experiences that help your business get noticed, earn trust, and grow.
+          </p>
+
+          <div style={{ display: "flex", flexDirection: isCompact ? "column" : "row", alignItems: "flex-start", gap: isShort ? 8 : 12, flexWrap: "wrap" }}>
+            <button
+              onClick={() => document.getElementById("work")?.scrollIntoView({ behavior: "smooth" })}
+              style={{
+                background: "#ffffff",
+                color: "#0d0d0d",
+                border: "none",
+                padding: isCompact ? `${isShort ? 8 : 11}px 24px` : "14px 30px",
+                cursor: "pointer",
+                fontFamily: "system-ui, sans-serif",
+                fontSize: 11,
+                letterSpacing: "2px",
+                fontWeight: 700,
+                transition: "background 0.2s",
+                width: isCompact ? "100%" : "auto",
+                maxWidth: isCompact ? 320 : "none",
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#e8e8e8")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#ffffff")}
+            >
+              VIEW WORK
+            </button>
+            <button
+              onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })}
+              style={{
+                background: "transparent",
+                color: "#ffffff",
+                border: "1px solid rgba(255,255,255,0.38)",
+                padding: isCompact ? `${isShort ? 8 : 11}px 24px` : "14px 30px",
+                cursor: "pointer",
+                fontFamily: "system-ui, sans-serif",
+                fontSize: 11,
+                letterSpacing: "2px",
+                fontWeight: 500,
+                transition: "border-color 0.2s",
+                width: isCompact ? "100%" : "auto",
+                maxWidth: isCompact ? 320 : "none",
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.8)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.38)")}
+            >
+              GET IN TOUCH
+            </button>
+          </div>
         </div>
+      </div>
 
-        {/* Headline */}
-        <h1
-          style={{
-            fontFamily: "Georgia, serif",
-            fontSize: "clamp(52px, 8vw, 108px)",
-            fontWeight: 700,
-            color: "#ffffff",
-            lineHeight: 1.0,
-            letterSpacing: "-2px",
-            margin: 0,
-          }}
-        >
-          YOUR BUSINESS,
-          <br />
-          <span style={{ color: "rgba(255,255,255,0.26)" }}>ONLY </span>
-          <span
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          maxWidth: 1400,
+          width: "100%",
+          margin: "auto auto 0",
+          display: isShort ? "none" : "grid",
+          paddingTop: isCompact ? 14 : 20,
+          borderTop: "1px solid rgba(255,255,255,0.24)",
+          gridTemplateColumns: isCompact ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
+        }}
+      >
+        {STATS.map(({ value, label }, index) => (
+          <div
+            key={label}
             style={{
-              display: "inline-block",
-              borderBottom: "3px solid rgba(255,255,255,0.88)",
-              paddingBottom: 4,
-              minWidth: 340,
-              opacity: visible ? 1 : 0,
-              transform: visible ? "translateY(0)" : "translateY(10px)",
-              transition: "opacity 0.35s ease, transform 0.35s ease",
+              padding: isCompact ? "8px 12px 6px 0" : index === 0 ? "0 28px 0 0" : "0 28px",
+              borderRight: isCompact
+                ? index % 2 === 0 ? "1px solid rgba(255,255,255,0.2)" : "none"
+                : index < STATS.length - 1 ? "1px solid rgba(255,255,255,0.2)" : "none",
+              borderBottom: isCompact && index < 2 ? "1px solid rgba(255,255,255,0.16)" : "none",
+              marginBottom: isCompact && index < 2 ? 6 : 0,
             }}
           >
-            {WORDS[index]}
-          </span>
-        </h1>
-
-        {/* Sub-copy */}
-        <p
-          style={{
-            fontFamily: "system-ui, sans-serif",
-            fontSize: 16,
-            fontWeight: 300,
-            lineHeight: 1.8,
-            color: "rgba(255,255,255,0.46)",
-            maxWidth: 520,
-            marginTop: 40,
-            marginBottom: 56,
-          }}
-        >
-          We help modern businesses in Kenya and beyond make the AI transition —
-          through intelligent websites, workflow automation, AI integrations, and
-          hands-on training.
-        </p>
-
-        {/* CTA row */}
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <button
-            onClick={() => document.getElementById("services")?.scrollIntoView({ behavior: "smooth" })}
-            style={{
-              background: "#ffffff", color: "#0d0d0d", border: "none",
-              padding: "16px 40px", cursor: "pointer",
-              fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "3px", fontWeight: 700,
-              transition: "background 0.2s",
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#e8e8e8")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#ffffff")}
-          >
-            VIEW SERVICES
-          </button>
-          <button
-            onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })}
-            style={{
-              background: "transparent", color: "#ffffff",
-              border: "1px solid rgba(255,255,255,0.28)",
-              padding: "16px 40px", cursor: "pointer",
-              fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "3px", fontWeight: 500,
-              transition: "border-color 0.2s",
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.8)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.28)")}
-          >
-            GET IN TOUCH
-          </button>
-        </div>
-
-        {/* Stats */}
-        <div
-          style={{
-            display: "flex", gap: 64, marginTop: 96, paddingTop: 48, flexWrap: "wrap",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
-          }}
-        >
-          {STATS.map(({ value, label }) => (
-            <div key={label}>
-              <div style={{ fontFamily: "Georgia, serif", fontSize: 32, fontWeight: 700, color: "#ffffff" }}>
-                {value}
-              </div>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "rgba(255,255,255,0.36)", marginTop: 5 }}>
-                {label.toUpperCase()}
-              </div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: isCompact ? 20 : 28, fontWeight: 700, color: "#ffffff", lineHeight: 1.1 }}>
+              {value}
             </div>
-          ))}
-        </div>
+            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 9, letterSpacing: "1.5px", color: "rgba(255,255,255,0.68)", marginTop: 5 }}>
+              {label.toUpperCase()}
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );

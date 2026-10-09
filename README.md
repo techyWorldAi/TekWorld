@@ -1,6 +1,8 @@
-# TechyWorldAI
+# TekWorld
 
 > Bridging the AI Gap for Modern Businesses — Work Smarter, Scale Faster.
+
+Built in Nairobi 🇰🇪 by **TekWorld**.
 
 Built with **React 18 + TypeScript + Vite + Tailwind CSS**, backed by **Supabase** for the hidden CMS.
 
@@ -27,7 +29,7 @@ npm run preview
 ## 🗂️ Project Structure
 
 ```
-techyworldai/
+tekworld/
 ├── index.html                    ← Vite entry HTML
 ├── vite.config.ts                ← Vite config
 ├── tailwind.config.js
@@ -124,7 +126,3 @@ Hit **Test Connection** → **Load Data**.
 | GitHub Pages | Set `base` in `vite.config.ts` |
 
 ---
-
-Built in Nairobi 🇰🇪 by TechyWorldAI.
-# techyWORLDAI
-# techyWorldAi

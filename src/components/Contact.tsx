@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { FaMapMarkerAlt, FaEnvelope, FaPhoneAlt } from "react-icons/fa";
 
 interface FormData {
   name: string;
@@ -10,9 +11,9 @@ interface FormData {
 const INITIAL_FORM: FormData = { name: "", email: "", service: "", message: "" };
 
 const CONTACT_DETAILS = [
-  { icon: "📍", label: "Nairobi, Kenya" },
-  { icon: "📧", label: "hello@techyworldai.com" },
-  { icon: "📞", label: "+254 700 000 000" },
+  { icon: <FaMapMarkerAlt />, label: "Nairobi, Kenya" },
+  { icon: <FaEnvelope />, label: "hello@tekworld.co.ke" },
+  { icon: <FaPhoneAlt />, label: "+254706384510" },
 ];
 
 const lineInput: React.CSSProperties = {
@@ -32,6 +33,13 @@ export const Contact: React.FC = () => {
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const set = (key: keyof FormData) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -48,12 +56,12 @@ export const Contact: React.FC = () => {
   };
 
   return (
-    <section id="contact" style={{ background: "#0d0d0d", padding: "120px 40px" }}>
+    <section id="contact" style={{ background: "#0d0d0d", padding: isMobile ? "80px 20px" : "120px 40px" }}>
       <div
         style={{
           maxWidth: 1280, margin: "0 auto",
-          display: "grid", gridTemplateColumns: "1fr 1fr",
-          gap: 100, alignItems: "start",
+          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+          gap: isMobile ? 40 : 100, alignItems: "start",
         }}
       >
         {/* Left */}
@@ -71,7 +79,7 @@ export const Contact: React.FC = () => {
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             {CONTACT_DETAILS.map(({ icon, label }) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <span style={{ fontSize: 16 }}>{icon}</span>
+                <span style={{ fontSize: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.7)" }}>{icon}</span>
                 <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "rgba(255,255,255,0.44)" }}>
                   {label}
                 </span>
@@ -127,12 +135,13 @@ export const Contact: React.FC = () => {
                 type="submit"
                 disabled={loading}
                 style={{
-                  alignSelf: "flex-start",
+                  alignSelf: isMobile ? "stretch" : "flex-start",
                   background: "#ffffff", color: "#0d0d0d", border: "none",
-                  padding: "16px 40px", cursor: loading ? "wait" : "pointer",
+                  padding: isMobile ? "16px 20px" : "16px 40px", cursor: loading ? "wait" : "pointer",
                   fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "3px", fontWeight: 700,
                   opacity: loading ? 0.6 : 1,
                   transition: "opacity 0.2s",
+                  width: isMobile ? "100%" : "auto",
                 }}
               >
                 {loading ? "SENDING..." : "SEND MESSAGE"}

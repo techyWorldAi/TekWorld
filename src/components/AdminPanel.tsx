@@ -11,6 +11,7 @@ import {
   SupabaseConfig,
 } from "../hooks/useSupabase";
 import { ADMIN_PIN } from "../constants";
+import { auth, firebaseEnabled, signInAdmin } from "../firebase";
 
 /* ── Shared sub-components ───────────────────────── */
 
@@ -82,7 +83,9 @@ interface AdminPanelProps {
 
 /* ── Main component ──────────────────────────────── */
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onDataSave }) => {
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(Boolean(auth?.currentUser));
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [pin, setPin] = useState("");
   const [tab, setTab] = useState<Tab>("config");
   const [status, setStatus] = useState("");
@@ -106,6 +109,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onDataSave }) =
   const flash = (msg: string) => {
     setStatus(msg);
     setTimeout(() => setStatus(""), 5000);
+  };
+
+  const handleFirebaseLogin = async () => {
+    if (!firebaseEnabled) {
+      if (pin === ADMIN_PIN) {
+        setAuthed(true);
+        setStatus("✓ Demo access enabled");
+        return;
+      }
+
+      flash("✗ Firebase not configured. Add VITE_FIREBASE_* values, or use the demo PIN.");
+      return;
+    }
+
+    if (!email.trim() || !password.trim()) {
+      flash("✗ Enter your email and password");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signInAdmin(email.trim(), password);
+      setAuthed(true);
+      flash("✓ Signed in successfully");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      flash(`✗ ${message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   /* Actions */
@@ -195,29 +228,63 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onDataSave }) =
     }
   };
 
-  /* ── PIN gate ── */
+  /* ── Firebase / PIN gate ── */
   if (!authed) {
     return (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.97)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ background: "#111111", border: "1px solid #222222", padding: 48, width: 340 }}>
           <div style={{ fontFamily: "Georgia, serif", fontSize: 24, fontWeight: 700, color: "#ffffff", marginBottom: 8 }}>Admin Access</div>
-          <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#555555", marginBottom: 28 }}>Enter PIN to continue</div>
-          <input
-            type="password"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && pin === ADMIN_PIN) setAuthed(true); }}
-            placeholder="PIN"
-            className="dark-input"
-            style={{ letterSpacing: "8px", fontSize: 18, marginBottom: 16 }}
-            autoFocus
-          />
-          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-            <BtnPrimary onClick={() => { if (pin === ADMIN_PIN) setAuthed(true); else flash("✗ Wrong PIN"); }}>
-              ENTER
+          <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#555555", marginBottom: 20 }}>
+            {firebaseEnabled ? "Sign in with Firebase to continue" : "Add Firebase env vars or use the demo PIN"}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              className="dark-input"
+              autoFocus
+              disabled={!firebaseEnabled && Boolean(auth)}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="dark-input"
+              disabled={!firebaseEnabled && Boolean(auth)}
+            />
+            {!firebaseEnabled && (
+              <input
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && pin === ADMIN_PIN) setAuthed(true); }}
+                placeholder="Demo PIN"
+                className="dark-input"
+                style={{ letterSpacing: "8px", fontSize: 18 }}
+              />
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+            <BtnPrimary
+              onClick={firebaseEnabled ? handleFirebaseLogin : () => {
+                if (pin === ADMIN_PIN) {
+                  setAuthed(true);
+                } else {
+                  flash("✗ Wrong PIN");
+                }
+              }}
+              disabled={loading}
+            >
+              {loading ? "SIGNING IN..." : "ENTER"}
             </BtnPrimary>
             <BtnGhost onClick={onClose}>CANCEL</BtnGhost>
           </div>
+
           {status && (
             <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#ff6666", marginTop: 12 }}>{status}</div>
           )}
@@ -238,7 +305,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onDataSave }) =
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 40 }}>
           <div>
             <div style={{ fontFamily: "Georgia, serif", fontSize: 28, fontWeight: 700, color: "#ffffff" }}>CMS Panel</div>
-            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, color: "#444444", letterSpacing: "3px", marginTop: 4 }}>TECHYWORLDAI ADMIN</div>
+            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, color: "#444444", letterSpacing: "3px", marginTop: 4 }}>TEKWORLD ADMIN</div>
           </div>
           <BtnGhost onClick={onClose}>✕ CLOSE</BtnGhost>
         </div>

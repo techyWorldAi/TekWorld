@@ -6,24 +6,33 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ onAdminClick }) => {
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth <= 700);
+
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 700);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   return (
     <footer
       style={{
         background: "#0a0a0a",
         borderTop: "1px solid #1a1a1a",
-        padding: "36px 40px",
+        padding: isMobile ? "24px 20px" : "36px 40px",
         display: "flex",
-        justifyContent: "space-between",
+        justifyContent: isMobile ? "center" : "space-between",
         alignItems: "center",
         flexWrap: "wrap",
         gap: 16,
+        textAlign: isMobile ? "center" : "left",
       }}
     >
       {/* Brand */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: isMobile ? "center" : "flex-start" }}>
         <Logo size={22} light />
         <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, color: "rgba(255,255,255,0.28)", letterSpacing: "2.5px" }}>
-          TECHYWORLDAI © {new Date().getFullYear()}
+          TEKWORLD © {new Date().getFullYear()}
         </span>
       </div>
 
