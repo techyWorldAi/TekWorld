@@ -51,7 +51,8 @@ export const WorkedWith: React.FC<WorkedWithProps> = ({ projects = [], loading =
                   ? <ImageWithFallback
                     src={project.coverImage}
                     alt=""
-                    loading="lazy"
+                    loading={index === 0 && !showFilters ? "eager" : "lazy"}
+                    priority={index === 0 && !showFilters}
                     sizes="(max-width: 600px) 100vw, (max-width: 900px) 50vw, 420px"
                     fallback={<div className="project-image-placeholder" aria-hidden="true">TEKWORLD</div>}
                   />

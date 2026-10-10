@@ -5,9 +5,10 @@ import {
   optimizeCloudinaryImageUrl,
 } from "../imageUrls";
 
-interface ImageWithFallbackProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src"> {
+interface ImageWithFallbackProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src" | "fetchPriority"> {
   src?: string;
   fallback?: React.ReactNode;
+  priority?: boolean;
 }
 
 export const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
@@ -17,6 +18,7 @@ export const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   className,
   style,
   onError,
+  priority = false,
   ...imageProps
 }) => {
   const [failed, setFailed] = useState(false);
@@ -35,6 +37,10 @@ export const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
     src={optimizeCloudinaryImageUrl(src)}
     srcSet={imageProps.srcSet ?? srcSet}
     sizes={imageProps.sizes ?? (srcSet ? "(max-width: 700px) 100vw, (max-width: 1100px) 50vw, 640px" : undefined)}
+    loading={priority ? "eager" : imageProps.loading}
+    ref={(image) => {
+      if (image && priority) image.setAttribute("fetchpriority", "high");
+    }}
     decoding={imageProps.decoding ?? "async"}
     alt={alt}
     onError={(event) => {

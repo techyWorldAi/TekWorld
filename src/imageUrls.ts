@@ -42,7 +42,7 @@ export const optimizeCloudinaryImageUrl = (value: string): string => cloudinaryV
 
 export const getCloudinaryImageSrcSet = (value: string): string | undefined => {
   if (cloudinaryUploadIndex(value) < 0) return undefined;
-  return [320, 640, 960, 1280]
+  return [160, 320, 640, 960, 1280]
     .map((width) => `${cloudinaryVariant(value, width)} ${width}w`)
     .join(", ");
 };

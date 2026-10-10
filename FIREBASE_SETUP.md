@@ -17,7 +17,7 @@ The web app reuses the existing Firebase project and Firestore database. CMS ima
 
 The browser uses `projects`, `services`, `companies`, `siteSettings/homepage`, `admins`, and `enquiries` in the existing database. Public users can read published projects/services/companies/pages and the homepage settings document. Only authorized administrators can write CMS content or read/manage enquiries. Visitors may create bounded contact enquiries. Admins and drafts are not public.
 
-Firestore uses a persistent IndexedDB local cache (shared safely across open tabs). Public content query results are reused from that cache for up to five minutes, then refreshed from Firestore; successful CMS edits invalidate those freshness markers immediately. A cached copy may be shown if Firestore is temporarily unavailable. Firestore data is structured text/metadata only—image bytes are delivered and cached by Cloudinary's CDN and the visitor's browser, not fetched from Firestore.
+Firestore uses a persistent IndexedDB local cache (shared safely across open tabs). Public content is displayed from that cache immediately, then refreshed in the background when its five-minute freshness window expires; successful CMS edits invalidate freshness markers and trigger a refresh. This keeps repeat visits responsive while allowing refreshed content to appear without a full-page wait. Firestore data is structured text/metadata only—image bytes are delivered and cached by Cloudinary's CDN and the visitor's browser, not fetched from Firestore.
 
 ## Cloudinary setup
 
@@ -36,7 +36,7 @@ Firestore uses a persistent IndexedDB local cache (shared safely across open tab
 
 The project's **Gallery images** control accepts multiple files at once and also allows adding more in later uploads. Published project detail pages automatically cycle through the gallery, with previous/next buttons and image indicators. The carousel pauses while hovered or focused and does not autoplay when reduced motion is preferred.
 
-Public Cloudinary images use responsive `srcset` variants (320, 640, 960, and 1280 pixels) with automatic format/quality selection and width-limited delivery. The browser selects an appropriate size for its viewport and may reuse its normal HTTP image cache on repeat views.
+Public Cloudinary images use responsive `srcset` variants (160, 320, 640, 960, and 1280 pixels) with automatic format/quality selection and width-limited delivery. The first featured project image and first company logos start loading immediately; lower-page imagery remains lazy-loaded. The hero background is preloaded and compressed for fast first paint. The browser selects an appropriate size for its viewport and may reuse its normal HTTP image cache on repeat views.
 
 In **Pages & Homepage**, admins can reorder or hide the existing hero, services, featured work, companies, and contact sections, choose the site's accent color, edit hero text, and select featured projects. This preserves TekWorld's existing responsive component designs rather than exposing a freeform drag-and-drop canvas. Uploaded service images are shown on their public service cards; companies render in their own public section when published.
 

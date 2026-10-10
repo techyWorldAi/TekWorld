@@ -27,7 +27,7 @@ export const Companies: React.FC<{ companies: Company[] }> = ({ companies }) => 
                 ? <ImageWithFallback
                   src={company.logoAsset?.url || company.logo_url}
                   alt={company.logoAsset?.alt || `${company.name} logo`}
-                  loading="lazy"
+                  loading={index < 4 ? "eager" : "lazy"}
                   sizes="(max-width: 768px) 54px, 76px"
                   fallback={<span className="company-logo-fallback">{company.name}</span>}
                 />

@@ -40,6 +40,15 @@ const requireDb = () => {
 
 const CONTENT_CACHE_TTL_MS = 5 * 60 * 1000;
 const cachePrefix = `tekworld:firestore:${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "unknown"}:`;
+let contentRefreshTimer: number | undefined;
+
+const schedulePublicContentRefresh = (): void => {
+  if (contentRefreshTimer !== undefined) return;
+  contentRefreshTimer = window.setTimeout(() => {
+    contentRefreshTimer = undefined;
+    window.dispatchEvent(new Event("tekworld:content-updated"));
+  }, 100);
+};
 
 const readCacheState = (key: string): { at: number; count: number } | null => {
   try {
@@ -60,11 +69,13 @@ const readCacheState = (key: string): { at: number; count: number } | null => {
   }
 };
 
-const saveCacheState = (key: string, count: number): void => {
+const saveCacheState = (key: string, count: number): boolean => {
   try {
     window.localStorage.setItem(`${cachePrefix}${key}`, JSON.stringify({ at: Date.now(), count }));
+    return true;
   } catch (error) {
     console.warn("TekWorld could not save the Firestore cache freshness timestamp.", error);
+    return false;
   }
 };
 
@@ -73,6 +84,28 @@ const isCacheMiss = (error: unknown): boolean =>
   error !== null &&
   "code" in error &&
   error.code === "unavailable";
+
+const refreshQueryInBackground = <T extends DocumentData>(
+  source: Query<T>,
+  cacheKey: string,
+): void => {
+  void getDocsFromServer(source).then((snapshot) => {
+    if (saveCacheState(cacheKey, snapshot.size)) schedulePublicContentRefresh();
+  }).catch((error: unknown) => {
+    console.warn(`TekWorld could not refresh cached ${cacheKey} in the background.`, error);
+  });
+};
+
+const refreshDocumentInBackground = <T extends DocumentData>(
+  reference: DocumentReference<T>,
+  cacheKey: string,
+): void => {
+  void getDocFromServer(reference).then((snapshot) => {
+    if (saveCacheState(cacheKey, snapshot.exists() ? 1 : 0)) schedulePublicContentRefresh();
+  }).catch((error: unknown) => {
+    console.warn(`TekWorld could not refresh cached ${cacheKey} in the background.`, error);
+  });
+};
 
 const readCachedQuery = async <T extends DocumentData>(
   source: Query<T>,
@@ -91,6 +124,8 @@ const readCachedQuery = async <T extends DocumentData>(
       ) {
         return cachedSnapshot;
       }
+      refreshQueryInBackground(source, cacheKey);
+      return cachedSnapshot;
     } catch (error) {
       if (!isCacheMiss(error)) throw error;
     }
@@ -124,6 +159,8 @@ const readCachedDocument = async <T extends DocumentData>(
     ) {
       return cachedSnapshot;
     }
+    refreshDocumentInBackground(reference, cacheKey);
+    return cachedSnapshot;
   } catch (error) {
     if (!isCacheMiss(error)) throw error;
   }

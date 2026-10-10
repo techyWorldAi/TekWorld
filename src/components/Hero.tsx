@@ -69,7 +69,7 @@ export const Hero: React.FC<{ content?: HomepageContent }> = ({ content = DEFAUL
         height: "100svh",
         minHeight: "100svh",
         backgroundColor: "#0d0d0d",
-        backgroundImage: `linear-gradient(rgba(13,13,13,0.18), rgba(13,13,13,0.18)), url('${import.meta.env.BASE_URL}Smarter%20Tools,%20Bigger%20Possibilities.png')`,
+        backgroundImage: `linear-gradient(rgba(13,13,13,0.18), rgba(13,13,13,0.18)), url('${import.meta.env.BASE_URL}Smarter%20Tools,%20Bigger%20Possibilities.jpg')`,
         backgroundSize: "auto, cover",
         backgroundPosition: isCompact ? "center, 80% center" : "center, center center",
         backgroundRepeat: "no-repeat",
