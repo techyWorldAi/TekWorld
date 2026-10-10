@@ -8,10 +8,10 @@ import { Contact } from "./components/Contact";
 import { Footer } from "./components/Footer";
 import { AdminPanel } from "./components/AdminPanel";
 import { ProjectDetail } from "./components/ProjectDetail";
-import type { CMSData, HomepageContent, Project, ServiceItem } from "./types";
+import type { CMSData, Company, HomepageContent, Project, ServiceItem } from "./types";
 import { loadCompanies, loadStories } from "./hooks/useSupabase";
 import { firebaseEnabled } from "./firebase";
-import { listProjects, listServices, loadHomepageContent } from "./firebaseCms";
+import { listCompanies, listProjects, listServices, loadHomepageContent } from "./firebaseCms";
 import { SERVICES } from "./constants";
 
 const DEFAULT_HOMEPAGE: HomepageContent = {
@@ -39,6 +39,7 @@ const App: React.FC = () => {
   const [cmsData, setCmsData] = useState<CMSData>({ companies: [], stories: [] });
   const [projects, setProjects] = useState<Project[]>([]);
   const [services, setServices] = useState<ServiceItem[]>(SERVICES);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [homepage, setHomepage] = useState<HomepageContent>(DEFAULT_HOMEPAGE);
   const [contentError, setContentError] = useState("");
   const [legacyError, setLegacyError] = useState("");
@@ -54,15 +55,17 @@ const App: React.FC = () => {
     if (!firebaseEnabled) return;
     let active = true;
     setContentLoading(true);
-    Promise.allSettled([listProjects(), listServices(), loadHomepageContent()]).then((results) => {
+    Promise.allSettled([listProjects(), listServices(), listCompanies(), loadHomepageContent()]).then((results) => {
       if (!active) return;
       const errors: string[] = [];
-      const [projectResult, serviceResult, homepageResult] = results;
+      const [projectResult, serviceResult, companyResult, homepageResult] = results;
       if (projectResult.status === "fulfilled") setProjects(projectResult.value);
       else errors.push(`Projects: ${projectResult.reason instanceof Error ? projectResult.reason.message : "load failed"}`);
       if (serviceResult.status === "fulfilled") {
         setServices(serviceResult.value.length ? serviceResult.value : SERVICES);
       } else errors.push(`Services: ${serviceResult.reason instanceof Error ? serviceResult.reason.message : "load failed"}`);
+      if (companyResult.status === "fulfilled") setCompanies(companyResult.value);
+      else errors.push(`Companies: ${companyResult.reason instanceof Error ? companyResult.reason.message : "load failed"}`);
       if (homepageResult.status === "fulfilled") setHomepage(homepageResult.value);
       else errors.push(`Homepage: ${homepageResult.reason instanceof Error ? homepageResult.reason.message : "load failed"}`);
       setContentError(errors.join(" · "));
@@ -107,6 +110,13 @@ const App: React.FC = () => {
     }
     return projects.filter((project) => project.featured);
   }, [homepage.featuredProjectIds, projects, route.type]);
+  const displayedCompanies = useMemo(() => {
+    const managedNames = new Set(companies.map((company) => company.name.trim().toLowerCase()));
+    return [
+      ...companies,
+      ...cmsData.companies.filter((company) => !managedNames.has(company.name.trim().toLowerCase())),
+    ];
+  }, [companies, cmsData.companies]);
 
   const projectRoute = route.type === "project";
   const workRoute = route.type === "work";
@@ -139,7 +149,7 @@ const App: React.FC = () => {
             <Services services={services} />
             <WorkedWith
               projects={displayedProjects}
-              companies={cmsData.companies}
+              companies={displayedCompanies}
               loading={contentLoading}
               error={contentError
                 ? `Firebase content is unavailable. Check your connection and confirm Cloud Firestore has been created and enabled for this project. Details: ${contentError}`

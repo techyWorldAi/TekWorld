@@ -1,6 +1,7 @@
 import React from "react";
 import type { Company, Project } from "../types";
 import { useInView } from "../hooks/useInView";
+import { ImageWithFallback } from "./ImageWithFallback";
 
 interface WorkedWithProps {
   projects?: Project[];
@@ -34,7 +35,7 @@ export const WorkedWith: React.FC<WorkedWithProps> = ({ projects = [], companies
               <a className="public-project-card" href={`/work/${encodeURIComponent(project.slug)}`} key={project.id}
                 style={{ opacity: inView ? 1 : 0, transform: inView ? "none" : "translateY(18px)", transition: `opacity .45s ${index * 60}ms ease, transform .45s ${index * 60}ms ease` }}>
                 {project.coverImage
-                  ? <img src={project.coverImage} alt="" loading="lazy" />
+                  ? <ImageWithFallback src={project.coverImage} alt="" loading="lazy" fallback={<div className="project-image-placeholder" aria-hidden="true">TEKWORLD</div>} />
                   : <div className="project-image-placeholder" aria-hidden="true">TEKWORLD</div>}
                 <div className="public-project-copy">
                   <p>{project.category || "PROJECT"}{project.client ? ` · ${project.client}` : ""}</p>
@@ -49,7 +50,7 @@ export const WorkedWith: React.FC<WorkedWithProps> = ({ projects = [], companies
           <div ref={ref} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 1, background: "#e0e0e0" }}>
             {companies.map((company, index) => (
               <div key={company.id} style={{ background: "#f7f7f5", padding: "36px 32px", opacity: inView ? 1 : 0, transform: inView ? "none" : "translateY(20px)", transition: `opacity 0.55s ${index * 60}ms ease, transform 0.55s ${index * 60}ms ease` }}>
-                {company.logo_url && <img src={company.logo_url} alt={`${company.name} logo`} style={{ height: 36, maxWidth: "100%", objectFit: "contain", display: "block", marginBottom: 16, filter: "grayscale(1)" }} />}
+                {company.logo_url && <ImageWithFallback src={company.logo_url} alt={`${company.name} logo`} style={{ height: 36, maxWidth: "100%", objectFit: "contain", display: "block", marginBottom: 16, filter: "grayscale(1)" }} fallback={<span className="company-logo-fallback">{company.name}</span>} />}
                 <div style={{ fontFamily: "Georgia, serif", fontSize: 18, fontWeight: 700, color: "#0d0d0d", marginBottom: 6 }}>{company.name}</div>
                 <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: "#999", letterSpacing: "1.5px" }}>{company.industry?.toUpperCase()}</div>
               </div>

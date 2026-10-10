@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { getProject } from "../firebaseCms";
 import type { Project } from "../types";
+import { ImageWithFallback } from "./ImageWithFallback";
+import { isValidImageUrl } from "../imageUrls";
 
 export const ProjectDetail: React.FC<{ slug: string }> = ({ slug }) => {
   const [project, setProject] = useState<Project | null>(null);
@@ -34,7 +36,7 @@ export const ProjectDetail: React.FC<{ slug: string }> = ({ slug }) => {
       image.setAttribute("property", "og:image");
       document.head.appendChild(image);
     }
-    image.content = project.coverImage;
+    image.content = isValidImageUrl(project.coverImage) ? project.coverImage : "";
     return () => { document.title = "TekWorld"; };
   }, [project]);
 
@@ -55,7 +57,7 @@ export const ProjectDetail: React.FC<{ slug: string }> = ({ slug }) => {
         <p className="project-detail-kicker">{project.category}{project.client ? ` · ${project.client}` : ""}</p>
         <h1>{project.title}</h1>
         <p>{project.summary}</p>
-        {project.coverImage && <img className="project-detail-cover" src={project.coverImage} alt={`${project.title} cover`} />}
+        {project.coverImage && <ImageWithFallback className="project-detail-cover" src={project.coverImage} alt={`${project.title} cover`} fallback={<div className="project-detail-cover project-image-placeholder" role="img" aria-label={`${project.title} cover unavailable`}>TEKWORLD</div>} />}
       </div>
       <div className="project-detail-content">
         <section><p className="project-detail-kicker">OVERVIEW</p><p>{project.description}</p></section>
@@ -68,7 +70,7 @@ export const ProjectDetail: React.FC<{ slug: string }> = ({ slug }) => {
           {project.services.length > 0 && <div><h2>Services</h2><ul>{project.services.map((item) => <li key={item}>{item}</li>)}</ul></div>}
           {project.technologies.length > 0 && <div><h2>Technology</h2><ul>{project.technologies.map((item) => <li key={item}>{item}</li>)}</ul></div>}
         </section>}
-        {project.gallery.length > 0 && <div className="project-detail-gallery">{project.gallery.map((url, index) => <img key={`${url}-${index}`} src={url} alt={`${project.title} gallery ${index + 1}`} loading="lazy" />)}</div>}
+        {project.gallery.length > 0 && <div className="project-detail-gallery">{project.gallery.map((url, index) => <ImageWithFallback key={`${url}-${index}`} src={url} alt={`${project.title} gallery ${index + 1}`} loading="lazy" fallback={<span className="project-gallery-placeholder" role="img" aria-label={`${project.title} gallery image unavailable`}>Image unavailable</span>} />)}</div>}
         {project.externalUrl && <a className="project-detail-external" href={project.externalUrl} target="_blank" rel="noreferrer">Visit project ↗</a>}
       </div>
     </main>

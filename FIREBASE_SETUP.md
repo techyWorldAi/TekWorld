@@ -1,23 +1,23 @@
 # TekWorld Firebase CMS setup
 
-The application reuses the Firebase web app configured in `src/firebase.ts`. The CMS uses Firebase Authentication, Cloud Firestore and Cloud Storage; no Firebase Admin SDK credentials belong in this frontend.
+The application reuses the Firebase web app configured in `src/firebase.ts`. The CMS currently uses Firebase Authentication and Cloud Firestore. Cloud Storage is optional and image uploads are temporarily disabled; no Firebase Admin SDK credentials belong in this frontend.
 
 ## One-time Firebase Console setup
 
 1. In Firebase Console, select the project matching `VITE_FIREBASE_PROJECT_ID`.
 2. Under **Authentication → Sign-in method**, enable **Email/Password**. Create administrator accounts under **Authentication → Users**.
-3. Create a **Cloud Firestore** database in production mode and a **Cloud Storage** bucket. The site's Firebase web config must include `VITE_FIREBASE_STORAGE_BUCKET`.
+3. Use the existing Cloud Firestore database whose resource ID is `default` (the resource name is `projects/{projectId}/databases/default`). The application explicitly selects this database. Do not create another database if it already exists. Cloud Storage is not needed for text-based CMS features or existing image URLs, and `VITE_FIREBASE_STORAGE_BUCKET` may remain blank.
 4. Copy the UID of each administrator account. As the project owner, create `admins/{uid}` in Firestore with the boolean field `enabled: true`. Do this only in Firebase Console or a trusted server/Admin SDK process. Admins cannot grant themselves access through the website.
-5. From the repository root, deploy the checked-in Firestore and Storage rules with the Firebase CLI: `firebase deploy --only firestore:rules,firestore:indexes,storage`. Review the selected Firebase project before deploying.
-6. Configure the six `VITE_FIREBASE_*` values in the hosting provider's build environment, then rebuild and deploy the site.
+5. The database ID is `default` (not `(default)`). The checked-in rules are mapped to this database in `firebase.json`; from the repository root, deploy them with `firebase deploy --only firestore:default --project tekworld-d57ca`. This deploys the current least-privilege rules and indexes to the existing named database. Review the target before deploying. The Storage rules remain checked in and unchanged; do not deploy them until Storage is configured and uploads are intentionally re-enabled.
+6. Configure the five required `VITE_FIREBASE_*` values in the hosting provider's build environment, then rebuild and deploy the site. `VITE_FIREBASE_STORAGE_BUCKET` is optional.
 7. Sign into the website using the provisioned user's email and password. In **Services**, use **Add existing TekWorld services** to copy the current static service details into Firestore; this operation only creates absent service slugs.
 
 ## Data and permissions
 
-- Public users can read published projects/services and the homepage settings document. Draft content, admin records, and enquiries are not public.
+- Public users can read published projects, services, companies, and the homepage settings document. Draft content, admin records, and enquiries are not public.
 - Public visitors can create contact enquiries only with the expected bounded fields. Only admins can read, update or delete them.
-- Only authenticated UIDs with an enabled `admins/{uid}` record may edit CMS content or manage media.
-- Storage uploads are restricted to image types up to 10 MB under `media/{uid}/`. Public reads allow those images to display on the website; writes/deletes remain admin-only.
+- Only authenticated UIDs with an enabled `admins/{uid}` record may edit CMS content. The client connects to Firestore database ID `default`, and its self-read admin check and CMS access rules must be deployed to that same database. Image uploads are temporarily disabled in the CMS; administrators can enter existing `http` or `https` image URLs for project covers/galleries, services, and company logos.
+- Firebase Storage is optional until uploads are needed. Existing Storage security rules remain unchanged in `storage.rules`; when uploads are required, configure the bucket, review the rules, and deploy them separately. This is not required for Firestore-backed text content.
 - Project and service document IDs are their unique URL slugs. The CMS rejects an existing slug before saving. Firestore query ordering is applied after retrieval, so no composite index is currently required.
 - GitHub Pages deploy builds copy `index.html` to `404.html` so direct project-route refreshes still boot the client application.
 
@@ -27,4 +27,4 @@ The legacy Supabase database is not changed or deleted. The public compatibility
 
 ## Local development
 
-Copy the Firebase web-app settings into an ignored `.env.local` file using the variable names in `.env.example`, then run `npm install`, `npm run dev`, and `npm run build`. Never commit `.env.local`, service-account JSON, or Admin SDK credentials.
+Copy the five required Firebase web-app settings into an ignored `.env.local` file using the variable names in `.env.example`. Leave `VITE_FIREBASE_STORAGE_BUCKET` empty unless you later configure Storage. Then run `npm install`, `npm run dev`, and `npm run build`. Never commit `.env.local`, service-account JSON, or Admin SDK credentials. The Firestore CMS uses Firebase's no-cost usage allowances; no billing upgrade is needed for text content, subject to current Firebase plan quotas.

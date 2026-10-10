@@ -3,37 +3,40 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth, firebaseEnabled, signInAdmin, signOutAdmin } from "../firebase";
 import { SERVICES } from "../constants";
 import {
+  listCompanies,
   deleteEnquiry,
   isAuthorizedAdmin,
   listEnquiries,
-  listMedia,
   listProjects,
   listServices,
   loadHomepageContent,
-  removeMedia,
+  removeCompany,
   removeProject,
   removeService,
+  saveCompany,
   saveHomepageContent,
   saveProject,
   saveService,
   seedDefaultServices,
   updateEnquiryStatus,
-  uploadMedia,
 } from "../firebaseCms";
 import type {
+  Company,
   Enquiry,
   HomepageContent,
-  MediaAsset,
   Project,
   ProjectFields,
   ServiceItem,
 } from "../types";
+import { isValidImageUrl } from "../imageUrls";
+import { ImageWithFallback } from "./ImageWithFallback";
 
-type Section = "overview" | "projects" | "services" | "homepage" | "media" | "enquiries" | "settings";
+type Section = "overview" | "projects" | "services" | "companies" | "homepage" | "media" | "enquiries" | "settings";
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "projects", label: "Projects / Our Work" },
   { id: "services", label: "Services" },
+  { id: "companies", label: "Companies & Logos" },
   { id: "homepage", label: "Pages & Homepage" },
   { id: "media", label: "Media Library" },
   { id: "enquiries", label: "Messages / Enquiries" },
@@ -52,16 +55,18 @@ const EMPTY_SERVICE: ServiceItem = {
   shortDescription: "", description: "", features: [], imageUrl: "", published: false,
   order: 0, seoTitle: "", seoDescription: "",
 };
+const EMPTY_COMPANY: Company = { id: "", name: "", industry: "", logo_url: "", published: false, order: 0 };
+const UPLOADS_DISABLED_MESSAGE = "Image uploads are temporarily unavailable. Use an existing image URL instead.";
 
 const inputStyle: React.CSSProperties = {
-  width: "100%", padding: "11px 12px", color: "#f4f4f4", background: "#111",
-  border: "1px solid #303030", font: "14px system-ui, sans-serif", outlineColor: "#168cff",
+  width: "100%", padding: "11px 12px", color: "#171717", background: "#fff",
+  border: "1px solid #d4d4d4", font: "14px system-ui, sans-serif", outlineColor: "#168cff",
 };
 const buttonStyle: React.CSSProperties = {
-  border: "1px solid #343434", padding: "10px 14px", color: "#ddd", background: "transparent",
+  border: "1px solid #d4d4d4", padding: "10px 14px", color: "#262626", background: "#fff",
   font: "600 11px system-ui, sans-serif", letterSpacing: "1px", cursor: "pointer",
 };
-const primaryStyle: React.CSSProperties = { ...buttonStyle, color: "#101010", borderColor: "#fff", background: "#fff" };
+const primaryStyle: React.CSSProperties = { ...buttonStyle, color: "#fff", borderColor: "#171717", background: "#171717" };
 
 const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const splitList = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
@@ -69,7 +74,7 @@ const friendlyError = (error: unknown) => error instanceof Error ? error.message
 
 const Field: React.FC<{ label: string; children: React.ReactNode; wide?: boolean }> = ({ label, children, wide }) => (
   <label style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
-    <span style={{ color: "#929292", font: "600 10px system-ui, sans-serif", letterSpacing: "1.5px", textTransform: "uppercase" }}>{label}</span>
+    <span style={{ color: "#737373", font: "600 10px system-ui, sans-serif", letterSpacing: "1.5px", textTransform: "uppercase" }}>{label}</span>
     {children}
   </label>
 );
@@ -95,8 +100,8 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [busy, setBusy] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
-  const [media, setMedia] = useState<MediaAsset[]>([]);
   const [homepage, setHomepage] = useState<HomepageContent>({
     eyebrow: "DIGITAL PRESENCE, REIMAGINED",
     headline: "Build an online presence that stands out.",
@@ -109,7 +114,9 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [serviceForm, setServiceForm] = useState<ServiceItem>(EMPTY_SERVICE);
   const [serviceBaseline, setServiceBaseline] = useState(JSON.stringify(EMPTY_SERVICE));
   const [editingServiceSlug, setEditingServiceSlug] = useState<string>();
-  const [uploadProgress, setUploadProgress] = useState<number>();
+  const [companyForm, setCompanyForm] = useState<Company>(EMPTY_COMPANY);
+  const [companyBaseline, setCompanyBaseline] = useState(JSON.stringify(EMPTY_COMPANY));
+  const [editingCompanyId, setEditingCompanyId] = useState<string>();
 
   const notify = useCallback((message: string) => setStatus(message), []);
   const checkAdministratorAccess = useCallback(async (currentUser: User | null) => {
@@ -131,14 +138,22 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         return;
       } catch (error) {
         const detail = friendlyError(error);
-        const offline = /offline|unavailable|network/i.test(detail);
+        const code = typeof error === "object" && error !== null && "code" in error
+          ? String(error.code)
+          : "";
+        const offline = code === "unavailable" || /offline|unavailable|network/i.test(detail);
         if (offline && attempt < 2) {
           await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)));
           continue;
         }
-        notify(offline
-          ? `Firebase signed you in, but Firestore could not verify administrator access. Check your connection and confirm Cloud Firestore is enabled for this Firebase project. Details: ${detail}`
-          : `Administrator authorization failed: ${detail}`);
+        const message = code === "permission-denied"
+          ? `Firestore denied the administrator lookup. Confirm this account can read its own admins/{uid} document and that the deployed rules allow that read. Details: ${detail}`
+          : code === "not-found"
+            ? `Firestore could not find the configured database "default" for this Firebase project. Confirm the existing database ID in Firebase Console. Details: ${detail}`
+            : offline
+              ? `Firebase signed you in, but Firestore could not verify administrator access because the database request is unavailable. Check your connection and try again. Details: ${detail}`
+              : `Administrator authorization failed: ${detail}`;
+        notify(message);
         setAuthLoading(false);
         return;
       }
@@ -146,7 +161,8 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   }, [notify]);
   const hasUnsavedChanges =
     JSON.stringify(projectForm) !== projectBaseline ||
-    JSON.stringify(serviceForm) !== serviceBaseline;
+    JSON.stringify(serviceForm) !== serviceBaseline ||
+    JSON.stringify(companyForm) !== companyBaseline;
   const requestClose = () => {
     if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
     onClose();
@@ -154,11 +170,12 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const [nextProjects, nextServices, nextEnquiries, nextHomepage] = await Promise.all([
-        listProjects(true), listServices(true), listEnquiries(), loadHomepageContent(),
+      const [nextProjects, nextServices, nextCompanies, nextEnquiries, nextHomepage] = await Promise.all([
+        listProjects(true), listServices(true), listCompanies(true), listEnquiries(), loadHomepageContent(),
       ]);
       setProjects(nextProjects);
       setServices(nextServices);
+      setCompanies(nextCompanies);
       setEnquiries(nextEnquiries);
       setHomepage(nextHomepage);
     } catch (error) {
@@ -191,13 +208,6 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   }, [authorized, refresh]);
 
   useEffect(() => {
-    if (!authorized || section !== "media") return;
-    setBusy(true);
-    listMedia().then(setMedia).catch((error: unknown) => notify(`Could not load media: ${friendlyError(error)}`))
-      .finally(() => setBusy(false));
-  }, [authorized, section, notify]);
-
-  useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") requestClose();
     };
@@ -222,14 +232,25 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setProjectForm((current) => ({ ...current, [key]: value }));
   const updateService = <K extends keyof ServiceItem>(key: K, value: ServiceItem[K]) =>
     setServiceForm((current) => ({ ...current, [key]: value }));
+  const updateCompany = <K extends keyof Company>(key: K, value: Company[K]) =>
+    setCompanyForm((current) => ({ ...current, [key]: value }));
 
   const saveProjectForm = async (event: React.FormEvent) => {
     event.preventDefault();
     const slug = slugify(projectForm.slug || projectForm.title);
     if (!projectForm.title.trim() || !slug) return notify("Project title and a valid slug are required.");
+    if (!isValidImageUrl(projectForm.coverImage) || projectForm.gallery.some((url) => !isValidImageUrl(url))) {
+      return notify("Enter valid http or https image URLs, or leave the image field blank.");
+    }
     setBusy(true);
     try {
-      await saveProject({ ...projectForm, title: projectForm.title.trim(), slug }, editingProjectSlug);
+      await saveProject({
+        ...projectForm,
+        title: projectForm.title.trim(),
+        slug,
+        coverImage: projectForm.coverImage.trim(),
+        gallery: projectForm.gallery.map((url) => url.trim()).filter(Boolean),
+      }, editingProjectSlug);
       setProjectForm(EMPTY_PROJECT);
       setProjectBaseline(JSON.stringify(EMPTY_PROJECT));
       setEditingProjectSlug(undefined);
@@ -246,9 +267,16 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     event.preventDefault();
     const slug = slugify(serviceForm.slug || serviceForm.title);
     if (!serviceForm.title.trim() || !slug) return notify("Service title and a valid slug are required.");
+    if (!isValidImageUrl(serviceForm.imageUrl)) return notify("Enter a valid http or https image URL, or leave the image field blank.");
     setBusy(true);
     try {
-      await saveService({ ...serviceForm, id: slug, title: serviceForm.title.trim(), slug }, editingServiceSlug);
+      await saveService({
+        ...serviceForm,
+        id: slug,
+        title: serviceForm.title.trim(),
+        slug,
+        imageUrl: serviceForm.imageUrl.trim(),
+      }, editingServiceSlug);
       setServiceForm(EMPTY_SERVICE);
       setServiceBaseline(JSON.stringify(EMPTY_SERVICE));
       setEditingServiceSlug(undefined);
@@ -270,18 +298,23 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   };
 
-  const upload = async (file: File, onDone: (asset: MediaAsset) => void) => {
-    if (!user) return notify("Sign in as an administrator before uploading.");
-    setUploadProgress(0);
+  const saveCompanyForm = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const id = slugify(companyForm.id || companyForm.name);
+    if (!companyForm.name.trim() || !id) return notify("Company name is required.");
+    if (!isValidImageUrl(companyForm.logo_url ?? "")) return notify("Enter a valid http or https logo URL, or leave it blank.");
+    setBusy(true);
     try {
-      const asset = await uploadMedia(file, user.uid, setUploadProgress);
-      onDone(asset);
-      if (section === "media") setMedia((current) => [asset, ...current]);
-      notify("Image uploaded.");
+      await saveCompany({ ...companyForm, id }, editingCompanyId);
+      setCompanyForm(EMPTY_COMPANY);
+      setCompanyBaseline(JSON.stringify(EMPTY_COMPANY));
+      setEditingCompanyId(undefined);
+      await refresh();
+      notify("Company saved.");
     } catch (error) {
-      notify(`Upload failed: ${friendlyError(error)}`);
+      notify(`Could not save company: ${friendlyError(error)}`);
     } finally {
-      setUploadProgress(undefined);
+      setBusy(false);
     }
   };
 
@@ -289,6 +322,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     published: projects.filter((project) => project.status === "published").length,
     drafts: projects.filter((project) => project.status === "draft").length,
     services: services.length,
+    companies: companies.length,
     enquiries: enquiries.filter((enquiry) => enquiry.status === "new").length,
   }), [projects, services, enquiries]);
   const changeSection = (nextSection: Section) => {
@@ -330,18 +364,9 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Full description" value={projectForm.description} onChange={(value) => updateProject("description", value)} multiline wide />
       <TextField label="Services delivered (comma-separated)" value={projectForm.services.join(", ")} onChange={(value) => updateProject("services", splitList(value))} />
       <TextField label="Technologies (comma-separated)" value={projectForm.technologies.join(", ")} onChange={(value) => updateProject("technologies", splitList(value))} />
-      <TextField label="Cover image URL" value={projectForm.coverImage} onChange={(value) => updateProject("coverImage", value)} wide />
-      {projectForm.coverImage && <img className="cms-image-preview" src={projectForm.coverImage} alt="Project cover preview" />}
-      <Field label="Upload cover image" wide><input type="file" accept="image/*" onChange={(event) => {
-        const file = event.currentTarget.files?.[0];
-        if (file) void upload(file, (asset) => updateProject("coverImage", asset.url));
-        event.currentTarget.value = "";
-      }} /></Field>
-      <Field label="Upload gallery images" wide><input type="file" accept="image/*" multiple onChange={(event) => {
-        const files = Array.from(event.currentTarget.files ?? []);
-        files.forEach((file) => void upload(file, (asset) => setProjectForm((current) => ({ ...current, gallery: [...current.gallery, asset.url] }))));
-        event.currentTarget.value = "";
-      }} /></Field>
+      <TextField label="Cover image URL" type="url" value={projectForm.coverImage} onChange={(value) => updateProject("coverImage", value)} wide />
+      {projectForm.coverImage && <ImageWithFallback className="cms-image-preview" src={projectForm.coverImage} alt="Project cover preview" />}
+      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
       <TextField label="Gallery image URLs (one per line)" value={projectForm.gallery.join("\n")} onChange={(value) => updateProject("gallery", splitList(value))} multiline wide />
       <TextField label="Challenge" value={projectForm.challenge} onChange={(value) => updateProject("challenge", value)} multiline />
       <TextField label="Solution" value={projectForm.solution} onChange={(value) => updateProject("solution", value)} multiline />
@@ -367,17 +392,36 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Short description" value={serviceForm.shortDescription} onChange={(value) => updateService("shortDescription", value)} wide />
       <TextField label="Full description" value={serviceForm.description} onChange={(value) => updateService("description", value)} multiline wide />
       <TextField label="Features (one per line)" value={serviceForm.features.join("\n")} onChange={(value) => updateService("features", splitList(value))} multiline wide />
-      <TextField label="Image URL" value={serviceForm.imageUrl} onChange={(value) => updateService("imageUrl", value)} wide />
-      <Field label="Upload service image" wide><input type="file" accept="image/*" onChange={(event) => {
-        const file = event.currentTarget.files?.[0];
-        if (file) void upload(file, (asset) => updateService("imageUrl", asset.url));
-        event.currentTarget.value = "";
-      }} /></Field>
+      <TextField label="Image URL" type="url" value={serviceForm.imageUrl} onChange={(value) => updateService("imageUrl", value)} wide />
+      {serviceForm.imageUrl && <ImageWithFallback className="cms-image-preview" src={serviceForm.imageUrl} alt="Service image preview" />}
+      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
       <TextField label="Display order" type="number" value={String(serviceForm.order)} onChange={(value) => updateService("order", Number(value) || 0)} />
       <TextField label="SEO title" value={serviceForm.seoTitle} onChange={(value) => updateService("seoTitle", value)} />
       <TextField label="SEO meta description" value={serviceForm.seoDescription} onChange={(value) => updateService("seoDescription", value)} wide />
       <label className="cms-checkbox"><input type="checkbox" checked={serviceForm.published} onChange={(event) => updateService("published", event.target.checked)} /> Published</label>
       <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingServiceSlug ? "SAVE SERVICE" : "CREATE SERVICE"}</button><button type="button" style={buttonStyle} onClick={() => { if (JSON.stringify(serviceForm) !== serviceBaseline && !window.confirm("Discard your unsaved service changes?")) return; setServiceForm(EMPTY_SERVICE); setServiceBaseline(JSON.stringify(EMPTY_SERVICE)); setEditingServiceSlug(undefined); }}>CLEAR</button></div>
+    </form>
+  );
+
+  const renderCompanyEditor = () => (
+    <form className="cms-form-grid" onSubmit={saveCompanyForm}>
+      <TextField label="Company name" value={companyForm.name} onChange={(value) => updateCompany("name", value)} />
+      <TextField label="Company ID" value={companyForm.id} onChange={(value) => updateCompany("id", slugify(value))} />
+      <TextField label="Industry" value={companyForm.industry ?? ""} onChange={(value) => updateCompany("industry", value)} />
+      <TextField label="Logo image URL" type="url" value={companyForm.logo_url ?? ""} onChange={(value) => updateCompany("logo_url", value)} />
+      {companyForm.logo_url && <ImageWithFallback className="cms-image-preview" src={companyForm.logo_url} alt={`${companyForm.name || "Company"} logo preview`} />}
+      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
+      <TextField label="Display order" type="number" value={String(companyForm.order ?? 0)} onChange={(value) => updateCompany("order", Number(value) || 0)} />
+      <label className="cms-checkbox"><input type="checkbox" checked={companyForm.published === true} onChange={(event) => updateCompany("published", event.target.checked)} /> Published</label>
+      <div className="cms-form-actions">
+        <button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingCompanyId ? "SAVE COMPANY" : "CREATE COMPANY"}</button>
+        <button type="button" style={buttonStyle} onClick={() => {
+          if (JSON.stringify(companyForm) !== companyBaseline && !window.confirm("Discard your unsaved company changes?")) return;
+          setCompanyForm(EMPTY_COMPANY);
+          setCompanyBaseline(JSON.stringify(EMPTY_COMPANY));
+          setEditingCompanyId(undefined);
+        }}>CLEAR</button>
+      </div>
     </form>
   );
 
@@ -389,7 +433,6 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div className="cms-header-actions"><span className="cms-muted">{user?.email}</span><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes and sign out?")) return; void signOutAdmin(); }}>SIGN OUT</button><a className="cms-back-link" href="/">VIEW WEBSITE ↗</a></div>
         </header>
         {status && <div className={status.includes("failed") || status.includes("Could not") ? "cms-notice is-error" : "cms-notice"} role="status">{status}<button onClick={() => setStatus("")} aria-label="Dismiss message">×</button></div>}
-        {uploadProgress !== undefined && <progress className="cms-upload-progress" value={uploadProgress} max={100} aria-label={`Image upload ${uploadProgress}% complete`}>{uploadProgress}%</progress>}
         <div className="cms-layout">
           <nav className="cms-sidebar" aria-label="Admin sections">
             {SECTIONS.map((item) => <button key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => changeSection(item.id)}>{item.label}</button>)}
@@ -414,7 +457,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               {renderProjectEditor()}
               <h3 className="cms-subheading">Projects ({projects.length})</h3>
               {projects.map((project) => <article className="cms-list-row cms-project-row" key={project.slug}>
-                <div>{project.coverImage && <img src={project.coverImage} alt="" />}<span>{project.title}<small>{project.slug} · {project.status} · order {project.order}</small></span></div>
+                <div>{project.coverImage && <ImageWithFallback src={project.coverImage} alt="" />}<span>{project.title}<small>{project.slug} · {project.status} · order {project.order}</small></span></div>
                 <div className="cms-row-actions"><button style={buttonStyle} onClick={() => void toggleFeatured(project)}>{project.featured ? "UNFEATURE" : "FEATURE"}</button><a style={buttonStyle} href={`/work/${encodeURIComponent(project.slug)}`} target="_blank" rel="noreferrer">PREVIEW</a><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...project, services: [...project.services], technologies: [...project.technologies], gallery: [...project.gallery] }; setEditingProjectSlug(project.slug); setProjectForm(next); setProjectBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete "${project.title}"? This cannot be undone.`)) return; try { await removeProject(project.slug); await refresh(); notify("Project deleted."); } catch (error) { notify(`Could not delete project: ${friendlyError(error)}`); } }}>DELETE</button></div>
               </article>)}
             </section>}
@@ -426,6 +469,29 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               {services.map((service) => <article className="cms-list-row" key={service.slug}><span>{service.title}<small>{service.price} {service.priceNote} · {service.published ? "published" : "draft"}</small></span><div className="cms-row-actions"><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...service }; setEditingServiceSlug(service.slug); setServiceForm(next); setServiceBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete service "${service.title}"?`)) return; try { await removeService(service.slug); await refresh(); notify("Service deleted."); } catch (error) { notify(`Could not delete service: ${friendlyError(error)}`); } }}>DELETE</button></div></article>)}
             </section>}
 
+            {section === "companies" && <section><p className="cms-kicker">CLIENTS</p><h2>{editingCompanyId ? "Edit company" : "Companies & logos"}</h2>
+              {renderCompanyEditor()}
+              <h3 className="cms-subheading">Companies ({companies.length})</h3>
+              {companies.map((company) => <article className="cms-list-row cms-project-row" key={company.id}>
+                <div>{company.logo_url && <ImageWithFallback src={company.logo_url} alt="" />}<span>{company.name}<small>{company.industry} · {company.published ? "published" : "draft"} · order {company.order ?? 0}</small></span></div>
+                <div className="cms-row-actions">
+                  <button style={buttonStyle} onClick={() => {
+                    if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
+                    const next = { ...company };
+                    setCompanyForm(next);
+                    setCompanyBaseline(JSON.stringify(next));
+                    setEditingCompanyId(company.id);
+                    window.scrollTo({ top: 0 });
+                  }}>EDIT</button>
+                  <button style={buttonStyle} onClick={async () => {
+                    if (!window.confirm(`Delete "${company.name}" from published companies?`)) return;
+                    try { await removeCompany(company.id); await refresh(); notify("Company deleted."); }
+                    catch (error) { notify(`Could not delete company: ${friendlyError(error)}`); }
+                  }}>DELETE</button>
+                </div>
+              </article>)}
+            </section>}
+
             {section === "homepage" && <section><p className="cms-kicker">PAGES & HOMEPAGE</p><h2>Homepage content</h2><form className="cms-form-grid" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { await saveHomepageContent(homepage); notify("Homepage content saved."); } catch (error) { notify(`Could not save homepage: ${friendlyError(error)}`); } finally { setBusy(false); } }}>
               <TextField label="Eyebrow" value={homepage.eyebrow} onChange={(value) => setHomepage((current) => ({ ...current, eyebrow: value }))} wide />
               <TextField label="Headline" value={homepage.headline} onChange={(value) => setHomepage((current) => ({ ...current, headline: value }))} wide />
@@ -434,7 +500,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <div className="cms-form-actions"><button style={primaryStyle} type="submit" disabled={busy}>SAVE HOMEPAGE</button></div>
             </form><p className="cms-muted">Homepage messaging defaults to the existing TekWorld positioning until you save changes. Service and project content remains controlled from its own sections.</p></section>}
 
-            {section === "media" && <section><p className="cms-kicker">ASSETS</p><h2>Media library</h2><Field label="Upload images" wide><input type="file" accept="image/*" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); files.forEach((file) => void upload(file, () => undefined)); event.currentTarget.value = ""; }} /></Field><div className="cms-media-grid">{media.map((asset) => <article key={asset.path}><img src={asset.url} alt={asset.name} /><p>{asset.name}</p><button style={buttonStyle} onClick={() => void navigator.clipboard.writeText(asset.url).then(() => notify("Media URL copied."))}>COPY URL</button><button style={buttonStyle} onClick={async () => { if (!window.confirm(`Delete ${asset.name}? References to this file will no longer work.`)) return; try { await removeMedia(asset.path); setMedia((current) => current.filter((item) => item.path !== asset.path)); notify("Media deleted."); } catch (error) { notify(`Could not delete media: ${friendlyError(error)}`); } }}>DELETE</button></article>)}</div>{!media.length && <p className="cms-muted">No uploads yet. Images up to 10 MB are accepted.</p>}</section>}
+            {section === "media" && <section><p className="cms-kicker">ASSETS</p><h2>Media library</h2><p className="cms-upload-unavailable" role="status">{UPLOADS_DISABLED_MESSAGE}</p><p className="cms-muted">You can use any publicly accessible HTTPS image URL in project, service, or company image fields.</p></section>}
 
             {section === "enquiries" && <section><p className="cms-kicker">INBOX</p><h2>Messages & enquiries</h2>{enquiries.map((enquiry) => <article className="cms-enquiry" key={enquiry.id}><div className="cms-list-row"><strong>{enquiry.name}</strong><span className="cms-muted">{enquiry.status}</span></div><a href={`mailto:${encodeURIComponent(enquiry.email)}`}>{enquiry.email}</a><p>{enquiry.service}</p><p>{enquiry.message}</p><div className="cms-row-actions"><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, enquiry.status === "new" ? "read" : "new"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>{enquiry.status === "new" ? "MARK READ" : "MARK NEW"}</button><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, "archived"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>ARCHIVE</button><button style={buttonStyle} onClick={async () => { if (!window.confirm("Delete this enquiry?")) return; try { await deleteEnquiry(enquiry.id); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>DELETE</button></div></article>)}{!enquiries.length && <p className="cms-muted">No enquiries received yet.</p>}</section>}
 

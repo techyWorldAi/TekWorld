@@ -11,20 +11,11 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
-import {
-  deleteObject,
-  getDownloadURL,
-  getMetadata,
-  listAll,
-  ref,
-  uploadBytesResumable,
-  type UploadTask,
-} from "firebase/storage";
-import { db, storage } from "./firebase";
+import { db } from "./firebase";
 import type {
+  Company,
   Enquiry,
   HomepageContent,
-  MediaAsset,
   Project,
   ProjectFields,
   ServiceItem,
@@ -33,11 +24,6 @@ import type {
 const requireDb = () => {
   if (!db) throw new Error("Firebase is not configured. Set the VITE_FIREBASE_* variables and rebuild.");
   return db;
-};
-
-const requireStorage = () => {
-  if (!storage) throw new Error("Firebase Storage is not configured. Set VITE_FIREBASE_STORAGE_BUCKET and rebuild.");
-  return storage;
 };
 
 const text = (data: Record<string, unknown>, key: string) =>
@@ -195,6 +181,52 @@ export const removeService = async (slug: string): Promise<void> => {
   await deleteDoc(doc(requireDb(), "services", slug));
 };
 
+export const listCompanies = async (admin = false): Promise<Company[]> => {
+  const base = collection(requireDb(), "companies");
+  const snapshot = await getDocs(admin
+    ? query(base, orderBy("order", "asc"))
+    : query(base, where("published", "==", true)));
+  return snapshot.docs.map((item) => ({
+    id: item.id,
+    name: text(item.data(), "name"),
+    industry: text(item.data(), "industry"),
+    logo_url: text(item.data(), "logo_url"),
+    published: boolean(item.data(), "published"),
+    order: number(item.data(), "order"),
+  })).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
+};
+
+export const saveCompany = async (company: Company, previousId?: string): Promise<void> => {
+  const database = requireDb();
+  const target = doc(database, "companies", company.id);
+  const previous = previousId && previousId !== company.id
+    ? doc(database, "companies", previousId)
+    : null;
+  await runTransaction(database, async (transaction) => {
+    const [targetSnapshot, previousSnapshot] = await Promise.all([
+      transaction.get(target),
+      previous ? transaction.get(previous) : Promise.resolve(null),
+    ]);
+    if (targetSnapshot.exists() && company.id !== previousId) {
+      throw new Error("That company ID is already in use.");
+    }
+    transaction.set(target, {
+      name: company.name.trim(),
+      industry: company.industry?.trim() ?? "",
+      logo_url: company.logo_url?.trim() ?? "",
+      published: company.published === true,
+      order: company.order ?? 0,
+      createdAt: previousSnapshot?.data()?.createdAt ?? targetSnapshot.data()?.createdAt ?? serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    if (previous && previousSnapshot?.exists()) transaction.delete(previous);
+  });
+};
+
+export const removeCompany = async (id: string): Promise<void> => {
+  await deleteDoc(doc(requireDb(), "companies", id));
+};
+
 const DEFAULT_HOMEPAGE: HomepageContent = {
   eyebrow: "DIGITAL PRESENCE, REIMAGINED",
   headline: "Build an online presence that stands out.",
@@ -239,72 +271,6 @@ export const seedDefaultServices = async (services: ServiceItem[]): Promise<numb
     if (wasCreated) created += 1;
   }
   return created;
-};
-
-export const uploadMedia = (
-  file: File,
-  uid: string,
-  onProgress: (percentage: number) => void,
-): Promise<MediaAsset> => new Promise((resolve, reject) => {
-  if (!file.type.startsWith("image/")) {
-    reject(new Error("Choose an image file."));
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    reject(new Error("Images must be 10 MB or smaller."));
-    return;
-  }
-
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const path = `media/${uid}/${crypto.randomUUID()}-${safeName}`;
-  const task: UploadTask = uploadBytesResumable(ref(requireStorage(), path), file, {
-    contentType: file.type,
-  });
-  task.on(
-    "state_changed",
-    (snapshot) => onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)),
-    reject,
-    async () => {
-      try {
-        const url = await getDownloadURL(task.snapshot.ref);
-        resolve({
-          path,
-          url,
-          name: file.name,
-          contentType: file.type,
-          size: file.size,
-        });
-      } catch (error) {
-        reject(error);
-      }
-    },
-  );
-});
-
-export const listMedia = async (): Promise<MediaAsset[]> => {
-  const root = ref(requireStorage(), "media");
-  const folders = await listAll(root);
-  const assets: MediaAsset[] = [];
-  for (const folder of folders.prefixes) {
-    const files = await listAll(folder);
-    for (const item of files.items) {
-      const [url, metadata] = await Promise.all([getDownloadURL(item), getMetadata(item)]);
-      assets.push({
-        path: item.fullPath,
-        url,
-        name: metadata.name,
-        contentType: metadata.contentType ?? "",
-        size: metadata.size,
-        updatedAt: metadata.updated,
-      });
-    }
-  }
-  return assets.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-};
-
-export const removeMedia = async (path: string): Promise<void> => {
-  if (!path.startsWith("media/")) throw new Error("Only CMS media files can be deleted.");
-  await deleteObject(ref(requireStorage(), path));
 };
 
 export const createEnquiry = async (enquiry: Omit<Enquiry, "id" | "status" | "createdAt">): Promise<void> => {

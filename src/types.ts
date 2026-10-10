@@ -27,6 +27,8 @@ export interface Company {
   name: string;
   industry?: string;
   logo_url?: string;
+  published?: boolean;
+  order?: number;
 }
 
 export interface Story {
@@ -90,13 +92,4 @@ export interface Enquiry {
   message: string;
   status: "new" | "read" | "archived";
   createdAt?: Timestamp;
-}
-
-export interface MediaAsset {
-  path: string;
-  url: string;
-  name: string;
-  contentType: string;
-  size: number;
-  updatedAt?: string;
 }

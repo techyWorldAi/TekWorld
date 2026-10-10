@@ -26,6 +26,11 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /companies/{companyId} {
+      allow get, list: if isAdmin() || resource.data.published == true;
+      allow create, update, delete: if isAdmin();
+    }
+
     match /pages/{pageId} {
       allow get, list: if isAdmin() || resource.data.published == true;
       allow create, update, delete: if isAdmin();
