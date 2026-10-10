@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ServiceItem } from "../types";
 import { SERVICES } from "../constants";
 import { useInView } from "../hooks/useInView";
+import { ImageWithFallback } from "./ImageWithFallback";
 
 /* ── Single service card ─────────────────────────── */
 interface ServiceCardProps {
@@ -31,12 +32,19 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView, isMob
         cursor: "default",
       }}
     >
+      {service.imageUrl && <ImageWithFallback
+        className="service-card-image"
+        src={service.imageAsset?.url || service.imageUrl}
+        alt={service.imageAsset?.alt || `${service.title} service`}
+        loading="lazy"
+        sizes="(max-width: 768px) 100vw, 400px"
+      />}
       {/* Tag + Price */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 32, gap: 12 }}>
         <span style={{
           fontFamily: "system-ui, sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "3px",
-          color: hovered ? "rgba(255,255,255,0.4)" : "#aaaaaa",
-          border: `1px solid ${hovered ? "rgba(255,255,255,0.13)" : "#e8e8e8"}`,
+          color: hovered ? "rgba(255,255,255,0.7)" : "var(--site-accent, #168cff)",
+          border: `1px solid ${hovered ? "rgba(255,255,255,0.2)" : "var(--site-accent, #168cff)"}`,
           padding: "5px 10px",
           transition: "color 0.35s, border-color 0.35s",
         }}>
@@ -108,7 +116,7 @@ export const Services: React.FC<{ services?: ServiceItem[] }> = ({ services = SE
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: isMobile ? 40 : 80, flexWrap: "wrap", gap: 32 }}>
           <div>
-            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "4px", color: "#aaaaaa", fontWeight: 600, marginBottom: 16 }}>
+            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "4px", color: "var(--site-accent, #168cff)", fontWeight: 600, marginBottom: 16 }}>
               WHAT WE DO
             </p>
             <h2 style={{ fontFamily: "Georgia, serif", fontSize: isMobile ? "clamp(30px, 10vw, 42px)" : "clamp(36px, 5vw, 64px)", fontWeight: 700, color: "#0d0d0d", lineHeight: 1.1 }}>

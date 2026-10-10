@@ -6,6 +6,9 @@ const DEFAULT_CONTENT: HomepageContent = {
   headline: "Build an online presence that stands out.",
   description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
   featuredProjectIds: [],
+  sectionOrder: ["hero", "services", "work", "companies", "contact"],
+  hiddenSections: [],
+  themeColor: "#168cff",
 };
 
 const STATS = [
@@ -113,7 +116,7 @@ export const Hero: React.FC<{ content?: HomepageContent }> = ({ content = DEFAUL
               lineHeight: 1.4,
             }}
           >
-            <span style={{ width: 5, height: 5, background: "#168cff", borderRadius: "50%" }} />
+            <span style={{ width: 5, height: 5, background: "var(--site-accent, #168cff)", borderRadius: "50%" }} />
             {content.eyebrow}
           </p>
 

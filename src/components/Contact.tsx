@@ -77,7 +77,7 @@ export const Contact: React.FC = () => {
       >
         {/* Left */}
         <div>
-          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "4px", color: "rgba(255,255,255,0.3)", fontWeight: 600, marginBottom: 16 }}>
+          <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "4px", color: "var(--site-accent, #168cff)", fontWeight: 600, marginBottom: 16 }}>
             LET'S TALK
           </p>
           <h2 style={{ fontFamily: "Georgia, serif", fontSize: "clamp(36px, 4vw, 60px)", fontWeight: 700, color: "#ffffff", lineHeight: 1.1, marginBottom: 32 }}>

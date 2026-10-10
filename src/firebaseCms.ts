@@ -3,27 +3,156 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromCache,
+  getDocFromServer,
   getDocs,
+  getDocsFromCache,
+  getDocsFromServer,
   orderBy,
   query,
   runTransaction,
   serverTimestamp,
   setDoc,
   where,
+  type DocumentData,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Query,
+  type QuerySnapshot,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type {
+  CloudinaryAsset,
   Company,
   Enquiry,
   HomepageContent,
   Project,
   ProjectFields,
   ServiceItem,
+  HomepageSectionId,
 } from "./types";
+import { HOMEPAGE_SECTION_IDS } from "./types";
 
 const requireDb = () => {
   if (!db) throw new Error("Firebase is not configured. Set the VITE_FIREBASE_* variables and rebuild.");
   return db;
+};
+
+const CONTENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const cachePrefix = `tekworld:firestore:${import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "unknown"}:`;
+
+const readCacheState = (key: string): { at: number; count: number } | null => {
+  try {
+    const value = window.localStorage.getItem(`${cachePrefix}${key}`);
+    if (!value) return null;
+    const parsed: unknown = JSON.parse(value);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("at" in parsed) ||
+      !("count" in parsed) ||
+      typeof parsed.at !== "number" ||
+      typeof parsed.count !== "number"
+    ) return null;
+    return { at: parsed.at, count: parsed.count };
+  } catch {
+    return null;
+  }
+};
+
+const saveCacheState = (key: string, count: number): void => {
+  try {
+    window.localStorage.setItem(`${cachePrefix}${key}`, JSON.stringify({ at: Date.now(), count }));
+  } catch (error) {
+    console.warn("TekWorld could not save the Firestore cache freshness timestamp.", error);
+  }
+};
+
+const isCacheMiss = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === "unavailable";
+
+const readCachedQuery = async <T extends DocumentData>(
+  source: Query<T>,
+  cacheKey: string,
+  forceServer = false,
+): Promise<QuerySnapshot<T>> => {
+  let cachedSnapshot: QuerySnapshot<T> | undefined;
+  if (!forceServer) {
+    try {
+      cachedSnapshot = await getDocsFromCache(source);
+      const cacheState = readCacheState(cacheKey);
+      if (
+        cacheState !== null &&
+        cacheState.count === cachedSnapshot.size &&
+        Date.now() - cacheState.at < CONTENT_CACHE_TTL_MS
+      ) {
+        return cachedSnapshot;
+      }
+    } catch (error) {
+      if (!isCacheMiss(error)) throw error;
+    }
+  }
+
+  try {
+    const snapshot = await getDocsFromServer(source);
+    saveCacheState(cacheKey, snapshot.size);
+    return snapshot;
+  } catch (error) {
+    if (cachedSnapshot) {
+      console.warn(`TekWorld is showing cached ${cacheKey} because Firestore could not refresh it.`, error);
+      return cachedSnapshot;
+    }
+    throw error;
+  }
+};
+
+const readCachedDocument = async <T extends DocumentData>(
+  reference: DocumentReference<T>,
+  cacheKey: string,
+): Promise<DocumentSnapshot<T>> => {
+  let cachedSnapshot: DocumentSnapshot<T> | undefined;
+  try {
+    cachedSnapshot = await getDocFromCache(reference);
+    const cacheState = readCacheState(cacheKey);
+    if (
+      cacheState !== null &&
+      cacheState.count === (cachedSnapshot.exists() ? 1 : 0) &&
+      Date.now() - cacheState.at < CONTENT_CACHE_TTL_MS
+    ) {
+      return cachedSnapshot;
+    }
+  } catch (error) {
+    if (!isCacheMiss(error)) throw error;
+  }
+
+  try {
+    const snapshot = await getDocFromServer(reference);
+    saveCacheState(cacheKey, snapshot.exists() ? 1 : 0);
+    return snapshot;
+  } catch (error) {
+    if (cachedSnapshot) {
+      console.warn(`TekWorld is showing cached ${cacheKey} because Firestore could not refresh it.`, error);
+      return cachedSnapshot;
+    }
+    throw error;
+  }
+};
+
+export const invalidatePublicContentCache = (): void => {
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(cachePrefix)) keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+  } catch (error) {
+    console.warn("TekWorld could not invalidate local Firestore cache timestamps.", error);
+  }
+  window.dispatchEvent(new Event("tekworld:content-updated"));
 };
 
 const text = (data: Record<string, unknown>, key: string) =>
@@ -37,6 +166,30 @@ const number = (data: Record<string, unknown>, key: string) =>
 
 const boolean = (data: Record<string, unknown>, key: string) => data[key] === true;
 
+const asset = (value: unknown): CloudinaryAsset | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.url !== "string" ||
+    typeof candidate.publicId !== "string" ||
+    typeof candidate.alt !== "string" ||
+    typeof candidate.width !== "number" ||
+    typeof candidate.height !== "number"
+  ) return undefined;
+  return {
+    url: candidate.url,
+    publicId: candidate.publicId,
+    alt: candidate.alt,
+    width: candidate.width,
+    height: candidate.height,
+  };
+};
+
+const assets = (value: unknown): CloudinaryAsset[] =>
+  Array.isArray(value)
+    ? value.map(asset).filter((item): item is CloudinaryAsset => item !== undefined)
+    : [];
+
 const projectFromSnapshot = (id: string, data: Record<string, unknown>): Project => ({
   id,
   title: text(data, "title"),
@@ -47,8 +200,10 @@ const projectFromSnapshot = (id: string, data: Record<string, unknown>): Project
   category: text(data, "category"),
   services: strings(data, "services"),
   technologies: strings(data, "technologies"),
-  coverImage: text(data, "coverImage"),
+  coverImage: asset(data.coverAsset)?.url || text(data, "coverImage"),
+  coverAsset: asset(data.coverAsset),
   gallery: strings(data, "gallery"),
+  galleryAssets: assets(data.galleryAssets),
   challenge: text(data, "challenge"),
   solution: text(data, "solution"),
   results: text(data, "results"),
@@ -73,7 +228,8 @@ const serviceFromSnapshot = (id: string, data: Record<string, unknown>): Service
   shortDescription: text(data, "shortDescription"),
   description: text(data, "description"),
   features: strings(data, "features"),
-  imageUrl: text(data, "imageUrl"),
+  imageUrl: asset(data.imageAsset)?.url || text(data, "imageUrl"),
+  imageAsset: asset(data.imageAsset),
   published: boolean(data, "published"),
   order: number(data, "order"),
   seoTitle: text(data, "seoTitle"),
@@ -91,9 +247,10 @@ export const isAuthorizedAdmin = async (uid: string): Promise<boolean> => {
 export const listProjects = async (admin = false): Promise<Project[]> => {
   const database = requireDb();
   const base = collection(database, "projects");
-  const snapshot = await getDocs(admin
-    ? query(base, orderBy("order", "asc"))
-    : query(base, where("status", "==", "published")));
+  const projectsQuery = admin
+    ? query(base)
+    : query(base, where("status", "==", "published"));
+  const snapshot = await readCachedQuery(projectsQuery, `projects:${admin ? "admin" : "public"}`, admin);
   return snapshot.docs
     .map((item) => projectFromSnapshot(item.id, item.data()))
     .filter((project) => admin || project.status === "published")
@@ -101,7 +258,10 @@ export const listProjects = async (admin = false): Promise<Project[]> => {
 };
 
 export const getProject = async (slug: string, admin = false): Promise<Project | null> => {
-  const snapshot = await getDoc(doc(requireDb(), "projects", slug));
+  const reference = doc(requireDb(), "projects", slug);
+  const snapshot = admin
+    ? await getDocFromServer(reference)
+    : await readCachedDocument(reference, `project:${slug}`);
   if (!snapshot.exists()) return null;
   const project = projectFromSnapshot(snapshot.id, snapshot.data());
   return !admin && project.status !== "published" ? null : project;
@@ -128,24 +288,29 @@ export const saveProject = async (
     const existing = previousSnapshot?.exists() ? previousSnapshot.data() : targetSnapshot.data();
     const record = {
       ...project,
+      coverAsset: project.coverAsset ?? null,
+      galleryAssets: project.galleryAssets ?? [],
       createdAt: existing?.createdAt ?? serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
     transaction.set(target, record);
     if (previous && previousSnapshot?.exists()) transaction.delete(previous);
   });
+  invalidatePublicContentCache();
 };
 
 export const removeProject = async (slug: string): Promise<void> => {
   await deleteDoc(doc(requireDb(), "projects", slug));
+  invalidatePublicContentCache();
 };
 
 export const listServices = async (admin = false): Promise<ServiceItem[]> => {
   const database = requireDb();
   const base = collection(database, "services");
-  const snapshot = await getDocs(admin
-    ? query(base, orderBy("order", "asc"))
-    : query(base, where("published", "==", true)));
+  const servicesQuery = admin
+    ? query(base)
+    : query(base, where("published", "==", true));
+  const snapshot = await readCachedQuery(servicesQuery, `services:${admin ? "admin" : "public"}`, admin);
   return snapshot.docs
     .map((item) => serviceFromSnapshot(item.id, item.data()))
     .filter((service) => admin || service.published)
@@ -170,27 +335,32 @@ export const saveService = async (service: ServiceItem, previousSlug?: string): 
     const existing = previousSnapshot?.exists() ? previousSnapshot.data() : targetSnapshot.data();
     transaction.set(target, {
       ...serviceData,
+      imageAsset: service.imageAsset ?? null,
       createdAt: existing?.createdAt ?? serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     if (previous && previousSnapshot?.exists()) transaction.delete(previous);
   });
+  invalidatePublicContentCache();
 };
 
 export const removeService = async (slug: string): Promise<void> => {
   await deleteDoc(doc(requireDb(), "services", slug));
+  invalidatePublicContentCache();
 };
 
 export const listCompanies = async (admin = false): Promise<Company[]> => {
   const base = collection(requireDb(), "companies");
-  const snapshot = await getDocs(admin
-    ? query(base, orderBy("order", "asc"))
-    : query(base, where("published", "==", true)));
+  const companiesQuery = admin
+    ? query(base)
+    : query(base, where("published", "==", true));
+  const snapshot = await readCachedQuery(companiesQuery, `companies:${admin ? "admin" : "public"}`, admin);
   return snapshot.docs.map((item) => ({
     id: item.id,
     name: text(item.data(), "name"),
     industry: text(item.data(), "industry"),
-    logo_url: text(item.data(), "logo_url"),
+    logoAsset: asset(item.data().logoAsset),
+    logo_url: asset(item.data().logoAsset)?.url || text(item.data(), "logo_url"),
     published: boolean(item.data(), "published"),
     order: number(item.data(), "order"),
   })).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
@@ -214,6 +384,7 @@ export const saveCompany = async (company: Company, previousId?: string): Promis
       name: company.name.trim(),
       industry: company.industry?.trim() ?? "",
       logo_url: company.logo_url?.trim() ?? "",
+      logoAsset: company.logoAsset ?? null,
       published: company.published === true,
       order: company.order ?? 0,
       createdAt: previousSnapshot?.data()?.createdAt ?? targetSnapshot.data()?.createdAt ?? serverTimestamp(),
@@ -221,10 +392,12 @@ export const saveCompany = async (company: Company, previousId?: string): Promis
     });
     if (previous && previousSnapshot?.exists()) transaction.delete(previous);
   });
+  invalidatePublicContentCache();
 };
 
 export const removeCompany = async (id: string): Promise<void> => {
   await deleteDoc(doc(requireDb(), "companies", id));
+  invalidatePublicContentCache();
 };
 
 const DEFAULT_HOMEPAGE: HomepageContent = {
@@ -233,12 +406,46 @@ const DEFAULT_HOMEPAGE: HomepageContent = {
   description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
   featuredProjectIds: [],
   featuredProjectsConfigured: false,
+  sectionOrder: [...HOMEPAGE_SECTION_IDS],
+  hiddenSections: [],
+  themeColor: "#168cff",
+};
+
+const validHomepageSections = (value: unknown): HomepageSectionId[] => {
+  if (!Array.isArray(value)) return [...HOMEPAGE_SECTION_IDS];
+  const selected = value.filter(
+    (item): item is HomepageSectionId =>
+      typeof item === "string" && HOMEPAGE_SECTION_IDS.includes(item as HomepageSectionId),
+  );
+  return [...new Set([...selected, ...HOMEPAGE_SECTION_IDS])];
+};
+
+const normalizeHomepage = (data: Record<string, unknown>, configured: boolean): HomepageContent => {
+  const color = text(data, "themeColor");
+  const hidden = Array.isArray(data.hiddenSections)
+    ? data.hiddenSections.filter(
+      (item): item is HomepageSectionId =>
+        typeof item === "string" && HOMEPAGE_SECTION_IDS.includes(item as HomepageSectionId),
+    )
+    : [];
+  return {
+    ...DEFAULT_HOMEPAGE,
+    eyebrow: text(data, "eyebrow") || DEFAULT_HOMEPAGE.eyebrow,
+    headline: text(data, "headline") || DEFAULT_HOMEPAGE.headline,
+    description: text(data, "description") || DEFAULT_HOMEPAGE.description,
+    featuredProjectIds: strings(data, "featuredProjectIds"),
+    featuredProjectsConfigured: configured,
+    sectionOrder: validHomepageSections(data.sectionOrder),
+    hiddenSections: [...new Set(hidden)],
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_HOMEPAGE.themeColor,
+    updatedAt: data.updatedAt as HomepageContent["updatedAt"],
+  };
 };
 
 export const loadHomepageContent = async (): Promise<HomepageContent> => {
-  const snapshot = await getDoc(doc(requireDb(), "siteSettings", "homepage"));
+  const snapshot = await readCachedDocument(doc(requireDb(), "siteSettings", "homepage"), "homepage");
   return snapshot.exists()
-    ? { ...DEFAULT_HOMEPAGE, ...snapshot.data(), featuredProjectsConfigured: true } as HomepageContent
+    ? normalizeHomepage(snapshot.data(), true)
     : DEFAULT_HOMEPAGE;
 };
 
@@ -248,9 +455,13 @@ export const saveHomepageContent = async (content: HomepageContent): Promise<voi
     headline: content.headline.trim(),
     description: content.description.trim(),
     featuredProjectIds: content.featuredProjectIds,
+    sectionOrder: content.sectionOrder,
+    hiddenSections: content.hiddenSections,
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(content.themeColor) ? content.themeColor : DEFAULT_HOMEPAGE.themeColor,
     featuredProjectsConfigured: true,
     updatedAt: serverTimestamp(),
   }, { merge: true });
+  invalidatePublicContentCache();
 };
 
 export const seedDefaultServices = async (services: ServiceItem[]): Promise<number> => {
@@ -270,6 +481,7 @@ export const seedDefaultServices = async (services: ServiceItem[]): Promise<numb
     });
     if (wasCreated) created += 1;
   }
+  if (created) invalidatePublicContentCache();
   return created;
 };
 

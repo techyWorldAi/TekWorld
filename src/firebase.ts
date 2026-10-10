@@ -6,7 +6,11 @@ import {
   onAuthStateChanged,
   type User,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 
 const FIRESTORE_DATABASE_ID = "default";
 
@@ -32,7 +36,13 @@ export const app: FirebaseApp | null = firebaseEnabled
   : null;
 
 export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app, FIRESTORE_DATABASE_ID) : null;
+export const db = app
+  ? initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  }, FIRESTORE_DATABASE_ID)
+  : null;
 
 export const signInAdmin = (email: string, password: string) => {
   if (!auth) {

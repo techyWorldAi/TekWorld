@@ -3,13 +3,13 @@ import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
 import { Services } from "./components/Services";
 import { WorkedWith } from "./components/WorkedWith";
-import { Stories } from "./components/Stories";
 import { Contact } from "./components/Contact";
+import { Companies } from "./components/Companies";
 import { Footer } from "./components/Footer";
 import { AdminPanel } from "./components/AdminPanel";
 import { ProjectDetail } from "./components/ProjectDetail";
-import type { CMSData, Company, HomepageContent, Project, ServiceItem } from "./types";
-import { loadCompanies, loadStories } from "./hooks/useSupabase";
+import type { Company, HomepageContent, Project, ServiceItem } from "./types";
+import { HOMEPAGE_SECTION_IDS } from "./types";
 import { firebaseEnabled } from "./firebase";
 import { listCompanies, listProjects, listServices, loadHomepageContent } from "./firebaseCms";
 import { SERVICES } from "./constants";
@@ -20,13 +20,22 @@ const DEFAULT_HOMEPAGE: HomepageContent = {
   description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
   featuredProjectIds: [],
   featuredProjectsConfigured: false,
+  sectionOrder: [...HOMEPAGE_SECTION_IDS],
+  hiddenSections: [],
+  themeColor: "#168cff",
 };
 
 const getRoute = () => {
   if (window.location.pathname.replace(/\/+$/, "") === "/admin") return { type: "admin" as const };
   const match = window.location.pathname.match(/^\/work\/([^/]+)\/?$/);
   if (match) {
-    try { return { type: "project" as const, slug: decodeURIComponent(match[1]) }; }
+    try {
+      return {
+        type: "project" as const,
+        slug: decodeURIComponent(match[1]),
+        preview: new URLSearchParams(window.location.search).get("preview") === "1",
+      };
+    }
     catch { return { type: "not-found" as const }; }
   }
   if (window.location.pathname.replace(/\/+$/, "") === "/work") return { type: "work" as const };
@@ -36,19 +45,23 @@ const getRoute = () => {
 const App: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [route, setRoute] = useState(getRoute);
-  const [cmsData, setCmsData] = useState<CMSData>({ companies: [], stories: [] });
   const [projects, setProjects] = useState<Project[]>([]);
   const [services, setServices] = useState<ServiceItem[]>(SERVICES);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [homepage, setHomepage] = useState<HomepageContent>(DEFAULT_HOMEPAGE);
   const [contentError, setContentError] = useState("");
-  const [legacyError, setLegacyError] = useState("");
   const [contentLoading, setContentLoading] = useState(false);
 
   useEffect(() => {
     const onHistoryChange = () => setRoute(getRoute());
     window.addEventListener("popstate", onHistoryChange);
     return () => window.removeEventListener("popstate", onHistoryChange);
+  }, []);
+
+  useEffect(() => {
+    const onContentUpdated = () => setRefreshKey((current) => current + 1);
+    window.addEventListener("tekworld:content-updated", onContentUpdated);
+    return () => window.removeEventListener("tekworld:content-updated", onContentUpdated);
   }, []);
 
   useEffect(() => {
@@ -62,7 +75,7 @@ const App: React.FC = () => {
       if (projectResult.status === "fulfilled") setProjects(projectResult.value);
       else errors.push(`Projects: ${projectResult.reason instanceof Error ? projectResult.reason.message : "load failed"}`);
       if (serviceResult.status === "fulfilled") {
-        setServices(serviceResult.value.length ? serviceResult.value : SERVICES);
+        setServices(serviceResult.value.length ? serviceResult.value : SERVICES.filter((service) => service.published));
       } else errors.push(`Services: ${serviceResult.reason instanceof Error ? serviceResult.reason.message : "load failed"}`);
       if (companyResult.status === "fulfilled") setCompanies(companyResult.value);
       else errors.push(`Companies: ${companyResult.reason instanceof Error ? companyResult.reason.message : "load failed"}`);
@@ -73,21 +86,6 @@ const App: React.FC = () => {
     });
     return () => { active = false; };
   }, [refreshKey]);
-
-  useEffect(() => {
-    // Keep access to existing Supabase records during migration; this read-only
-    // compatibility path does not save credentials or modify the old database.
-    if (!localStorage.getItem("tw_sb_url") || !localStorage.getItem("tw_sb_key")) return;
-    let active = true;
-    Promise.all([loadCompanies(), loadStories()])
-      .then(([companies, stories]) => {
-        if (active && Array.isArray(companies) && Array.isArray(stories)) setCmsData({ companies, stories });
-      })
-      .catch((error: unknown) => {
-        if (active) setLegacyError(error instanceof Error ? error.message : "Legacy public content could not be loaded.");
-      });
-    return () => { active = false; };
-  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -104,20 +102,11 @@ const App: React.FC = () => {
   const displayedProjects = useMemo(() => {
     if (route.type === "work") return projects;
     if (homepage.featuredProjectsConfigured) {
-      return homepage.featuredProjectIds
-        .map((id) => projects.find((project) => project.id === id))
-        .filter((project): project is Project => project !== undefined);
+      const featuredIds = new Set(homepage.featuredProjectIds);
+      return projects.filter((project) => featuredIds.has(project.id));
     }
     return projects.filter((project) => project.featured);
   }, [homepage.featuredProjectIds, projects, route.type]);
-  const displayedCompanies = useMemo(() => {
-    const managedNames = new Set(companies.map((company) => company.name.trim().toLowerCase()));
-    return [
-      ...companies,
-      ...cmsData.companies.filter((company) => !managedNames.has(company.name.trim().toLowerCase())),
-    ];
-  }, [companies, cmsData.companies]);
-
   const projectRoute = route.type === "project";
   const workRoute = route.type === "work";
 
@@ -135,29 +124,37 @@ const App: React.FC = () => {
         setRoute({ type: "admin" });
       }} services={services} />
       {projectRoute ? (
-        <ProjectDetail slug={route.slug} />
+        <ProjectDetail slug={route.slug} preview={route.preview} />
       ) : workRoute ? (
         <main className="work-listing-page">
           <p className="project-detail-kicker">TEKWORLD · OUR WORK</p>
           <h1>Selected projects</h1>
-          <WorkedWith projects={projects} loading={contentLoading} error={contentError} />
+          <WorkedWith projects={projects} loading={contentLoading} error={contentError} showFilters />
         </main>
       ) : (
         <>
-          <main>
-            <Hero content={homepage} />
-            <Services services={services} />
-            <WorkedWith
-              projects={displayedProjects}
-              companies={displayedCompanies}
-              loading={contentLoading}
-              error={contentError
-                ? `Firebase content is unavailable. Check your connection and confirm Cloud Firestore has been created and enabled for this project. Details: ${contentError}`
-                : ""}
-            />
-            {legacyError && <p role="status" className="legacy-content-notice">Some existing client stories could not be loaded. {legacyError}</p>}
-            <Stories stories={cmsData.stories} />
-            <Contact />
+          <main className="site-theme" style={{ "--site-accent": homepage.themeColor } as React.CSSProperties}>
+            {homepage.sectionOrder
+              .filter((section) => !homepage.hiddenSections.includes(section))
+              .map((section) => {
+                switch (section) {
+                  case "hero":
+                    return <Hero key={section} content={homepage} />;
+                  case "services":
+                    return <Services key={section} services={services} />;
+                  case "work":
+                    return <WorkedWith
+                      key={section}
+                      projects={displayedProjects}
+                      loading={contentLoading}
+                      error={contentError || undefined}
+                    />;
+                  case "companies":
+                    return <Companies key={section} companies={companies} />;
+                  case "contact":
+                    return <Contact key={section} />;
+                }
+              })}
           </main>
           <Footer onAdminClick={() => {
             window.history.pushState({}, "", "/admin");

@@ -1,5 +1,13 @@
 import type { Timestamp } from "firebase/firestore";
 
+export interface CloudinaryAsset {
+  url: string;
+  publicId: string;
+  alt: string;
+  width: number;
+  height: number;
+}
+
 export interface ServiceItem {
   id: string;
   slug: string;
@@ -12,6 +20,7 @@ export interface ServiceItem {
   description: string;
   features: string[];
   imageUrl: string;
+  imageAsset?: CloudinaryAsset;
   published: boolean;
   order: number;
   seoTitle: string;
@@ -27,6 +36,7 @@ export interface Company {
   name: string;
   industry?: string;
   logo_url?: string;
+  logoAsset?: CloudinaryAsset;
   published?: boolean;
   order?: number;
 }
@@ -57,7 +67,9 @@ export interface ProjectFields {
   services: string[];
   technologies: string[];
   coverImage: string;
+  coverAsset?: CloudinaryAsset;
   gallery: string[];
+  galleryAssets?: CloudinaryAsset[];
   challenge: string;
   solution: string;
   results: string;
@@ -75,12 +87,18 @@ export interface Project extends ProjectFields {
   updatedAt?: Timestamp;
 }
 
+export const HOMEPAGE_SECTION_IDS = ["hero", "services", "work", "companies", "contact"] as const;
+export type HomepageSectionId = typeof HOMEPAGE_SECTION_IDS[number];
+
 export interface HomepageContent {
   eyebrow: string;
   headline: string;
   description: string;
   featuredProjectIds: string[];
   featuredProjectsConfigured?: boolean;
+  sectionOrder: HomepageSectionId[];
+  hiddenSections: HomepageSectionId[];
+  themeColor: string;
   updatedAt?: Timestamp;
 }
 

@@ -24,12 +24,16 @@ import type {
   Company,
   Enquiry,
   HomepageContent,
+  HomepageSectionId,
   Project,
   ProjectFields,
   ServiceItem,
 } from "../types";
+import { HOMEPAGE_SECTION_IDS } from "../types";
 import { isValidImageUrl } from "../imageUrls";
 import { ImageWithFallback } from "./ImageWithFallback";
+import { CloudinaryUpload } from "./CloudinaryUpload";
+import type { CloudinaryAsset } from "../types";
 
 type Section = "overview" | "projects" | "services" | "companies" | "homepage" | "media" | "enquiries" | "settings";
 const SECTIONS: { id: Section; label: string }[] = [
@@ -45,19 +49,24 @@ const SECTIONS: { id: Section; label: string }[] = [
 
 const EMPTY_PROJECT: ProjectFields = {
   title: "", slug: "", summary: "", description: "", client: "", category: "",
-  services: [], technologies: [], coverImage: "", gallery: [], challenge: "",
+  services: [], technologies: [], coverImage: "", coverAsset: undefined, gallery: [], galleryAssets: [], challenge: "",
   solution: "", results: "", externalUrl: "", seoTitle: "", seoDescription: "",
   status: "draft", featured: false, order: 0,
 };
 
 const EMPTY_SERVICE: ServiceItem = {
   id: "", slug: "", title: "", tag: "", price: "", currency: "KES", priceNote: "",
-  shortDescription: "", description: "", features: [], imageUrl: "", published: false,
+  shortDescription: "", description: "", features: [], imageUrl: "", imageAsset: undefined, published: false,
   order: 0, seoTitle: "", seoDescription: "",
 };
-const EMPTY_COMPANY: Company = { id: "", name: "", industry: "", logo_url: "", published: false, order: 0 };
-const UPLOADS_DISABLED_MESSAGE = "Image uploads are temporarily unavailable. Use an existing image URL instead.";
-
+const EMPTY_COMPANY: Company = { id: "", name: "", industry: "", logo_url: "", logoAsset: undefined, published: false, order: 0 };
+const HOMEPAGE_SECTION_LABELS: Record<HomepageSectionId, string> = {
+  hero: "Hero / introduction",
+  services: "Services",
+  work: "Featured projects",
+  companies: "Companies",
+  contact: "Contact",
+};
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: "11px 12px", color: "#171717", background: "#fff",
   border: "1px solid #d4d4d4", font: "14px system-ui, sans-serif", outlineColor: "#168cff",
@@ -98,6 +107,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [section, setSection] = useState<Section>("overview");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mediaUploading, setMediaUploading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -107,7 +117,11 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     headline: "Build an online presence that stands out.",
     description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
     featuredProjectIds: [],
+    sectionOrder: [...HOMEPAGE_SECTION_IDS],
+    hiddenSections: [],
+    themeColor: "#168cff",
   });
+  const [homepageBaseline, setHomepageBaseline] = useState(() => JSON.stringify(homepage));
   const [projectForm, setProjectForm] = useState<ProjectFields>(EMPTY_PROJECT);
   const [projectBaseline, setProjectBaseline] = useState(JSON.stringify(EMPTY_PROJECT));
   const [editingProjectSlug, setEditingProjectSlug] = useState<string>();
@@ -162,8 +176,13 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const hasUnsavedChanges =
     JSON.stringify(projectForm) !== projectBaseline ||
     JSON.stringify(serviceForm) !== serviceBaseline ||
-    JSON.stringify(companyForm) !== companyBaseline;
+    JSON.stringify(companyForm) !== companyBaseline ||
+    JSON.stringify(homepage) !== homepageBaseline;
   const requestClose = () => {
+    if (mediaUploading) {
+      notify("Wait for the image upload to finish before leaving the admin dashboard.");
+      return;
+    }
     if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
     onClose();
   };
@@ -178,6 +197,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setCompanies(nextCompanies);
       setEnquiries(nextEnquiries);
       setHomepage(nextHomepage);
+      setHomepageBaseline(JSON.stringify(nextHomepage));
     } catch (error) {
       notify(`Could not load CMS data: ${friendlyError(error)}`);
     } finally {
@@ -234,9 +254,23 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setServiceForm((current) => ({ ...current, [key]: value }));
   const updateCompany = <K extends keyof Company>(key: K, value: Company[K]) =>
     setCompanyForm((current) => ({ ...current, [key]: value }));
+  const updateGalleryAssets = (assets: CloudinaryAsset[]) => {
+    setProjectForm((current) => {
+      const previousUrls = new Set((current.galleryAssets ?? []).map((asset) => asset.url));
+      return {
+        ...current,
+        galleryAssets: assets,
+        gallery: [
+          ...current.gallery.filter((url) => !previousUrls.has(url)),
+          ...assets.map((asset) => asset.url),
+        ],
+      };
+    });
+  };
 
   const saveProjectForm = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mediaUploading) return notify("Wait for the image upload to finish before saving the project.");
     const slug = slugify(projectForm.slug || projectForm.title);
     if (!projectForm.title.trim() || !slug) return notify("Project title and a valid slug are required.");
     if (!isValidImageUrl(projectForm.coverImage) || projectForm.gallery.some((url) => !isValidImageUrl(url))) {
@@ -250,6 +284,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         slug,
         coverImage: projectForm.coverImage.trim(),
         gallery: projectForm.gallery.map((url) => url.trim()).filter(Boolean),
+        galleryAssets: projectForm.galleryAssets ?? [],
       }, editingProjectSlug);
       setProjectForm(EMPTY_PROJECT);
       setProjectBaseline(JSON.stringify(EMPTY_PROJECT));
@@ -265,6 +300,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const saveServiceForm = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mediaUploading) return notify("Wait for the image upload to finish before saving the service.");
     const slug = slugify(serviceForm.slug || serviceForm.title);
     if (!serviceForm.title.trim() || !slug) return notify("Service title and a valid slug are required.");
     if (!isValidImageUrl(serviceForm.imageUrl)) return notify("Enter a valid http or https image URL, or leave the image field blank.");
@@ -300,6 +336,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const saveCompanyForm = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (mediaUploading) return notify("Wait for the image upload to finish before saving the company.");
     const id = slugify(companyForm.id || companyForm.name);
     if (!companyForm.name.trim() || !id) return notify("Company name is required.");
     if (!isValidImageUrl(companyForm.logo_url ?? "")) return notify("Enter a valid http or https logo URL, or leave it blank.");
@@ -325,9 +362,41 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     companies: companies.length,
     enquiries: enquiries.filter((enquiry) => enquiry.status === "new").length,
   }), [projects, services, enquiries]);
+  const mediaLibrary = useMemo(() => {
+    const linkedAssets = [
+      ...projects.flatMap((project) => [
+        ...(project.coverAsset ? [{ ...project.coverAsset, source: `${project.title} · cover` }] : []),
+        ...(project.galleryAssets ?? []).map((asset, index) => ({
+          ...asset,
+          source: `${project.title} · gallery ${index + 1}`,
+        })),
+      ]),
+      ...services.flatMap((service) => service.imageAsset
+        ? [{ ...service.imageAsset, source: `${service.title} · service` }]
+        : []),
+      ...companies.flatMap((company) => company.logoAsset
+        ? [{ ...company.logoAsset, source: `${company.name} · logo` }]
+        : []),
+    ];
+    return Array.from(new Map(linkedAssets.map((item) => [item.publicId, item])).values());
+  }, [companies, projects, services]);
   const changeSection = (nextSection: Section) => {
-    if (nextSection !== section && hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
+    if (mediaUploading) {
+      notify("Wait for the image upload to finish before changing admin sections.");
+      return;
+    }
+    if (nextSection !== section && hasUnsavedChanges && !window.confirm("You have unsaved changes. Leave this section? They will remain in the editor until saved or cleared.")) return;
     setSection(nextSection);
+  };
+  const moveHomepageSection = (sectionId: HomepageSectionId, direction: -1 | 1) => {
+    setHomepage((current) => {
+      const index = current.sectionOrder.indexOf(sectionId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.sectionOrder.length) return current;
+      const sectionOrder = [...current.sectionOrder];
+      [sectionOrder[index], sectionOrder[targetIndex]] = [sectionOrder[targetIndex], sectionOrder[index]];
+      return { ...current, sectionOrder };
+    });
   };
 
   if (!user) {
@@ -364,10 +433,37 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Full description" value={projectForm.description} onChange={(value) => updateProject("description", value)} multiline wide />
       <TextField label="Services delivered (comma-separated)" value={projectForm.services.join(", ")} onChange={(value) => updateProject("services", splitList(value))} />
       <TextField label="Technologies (comma-separated)" value={projectForm.technologies.join(", ")} onChange={(value) => updateProject("technologies", splitList(value))} />
-      <TextField label="Cover image URL" type="url" value={projectForm.coverImage} onChange={(value) => updateProject("coverImage", value)} wide />
-      {projectForm.coverImage && <ImageWithFallback className="cms-image-preview" src={projectForm.coverImage} alt="Project cover preview" />}
-      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
-      <TextField label="Gallery image URLs (one per line)" value={projectForm.gallery.join("\n")} onChange={(value) => updateProject("gallery", splitList(value))} multiline wide />
+      <CloudinaryUpload
+        label="Cover image"
+        assets={projectForm.coverAsset ? [projectForm.coverAsset] : []}
+        onUploadingChange={setMediaUploading}
+        altText={`${projectForm.title || "Project"} cover`}
+        onChange={(assets) => {
+          const nextAsset = assets[0];
+          updateProject("coverAsset", nextAsset);
+          updateProject("coverImage", nextAsset?.url ?? "");
+        }}
+      />
+      <TextField label="Cover image URL (optional legacy/external image)" type="url" value={projectForm.coverImage} onChange={(value) => {
+        updateProject("coverImage", value);
+        if (value !== projectForm.coverAsset?.url) updateProject("coverAsset", undefined);
+      }} wide />
+      <CloudinaryUpload
+        label="Gallery images"
+        assets={projectForm.galleryAssets ?? []}
+        onUploadingChange={setMediaUploading}
+        altText={`${projectForm.title || "Project"} gallery`}
+        multiple
+        onChange={updateGalleryAssets}
+      />
+      <TextField label="Gallery image URLs (one per line)" value={projectForm.gallery.join("\n")} onChange={(value) => {
+        const gallery = splitList(value);
+        setProjectForm((current) => ({
+          ...current,
+          gallery,
+          galleryAssets: (current.galleryAssets ?? []).filter((asset) => gallery.includes(asset.url)),
+        }));
+      }} multiline wide />
       <TextField label="Challenge" value={projectForm.challenge} onChange={(value) => updateProject("challenge", value)} multiline />
       <TextField label="Solution" value={projectForm.solution} onChange={(value) => updateProject("solution", value)} multiline />
       <TextField label="Results / outcomes" value={projectForm.results} onChange={(value) => updateProject("results", value)} multiline />
@@ -377,7 +473,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Display order" type="number" value={String(projectForm.order)} onChange={(value) => updateProject("order", Number(value) || 0)} />
       <Field label="Publication status"><select value={projectForm.status} onChange={(event) => updateProject("status", event.target.value as ProjectFields["status"])} style={inputStyle}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
       <label className="cms-checkbox"><input type="checkbox" checked={projectForm.featured} onChange={(event) => updateProject("featured", event.target.checked)} /> Feature on homepage</label>
-      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingProjectSlug ? "SAVE PROJECT" : "CREATE PROJECT"}</button><button type="button" style={buttonStyle} onClick={() => { if (JSON.stringify(projectForm) !== projectBaseline && !window.confirm("Discard your unsaved project changes?")) return; setProjectForm(EMPTY_PROJECT); setProjectBaseline(JSON.stringify(EMPTY_PROJECT)); setEditingProjectSlug(undefined); }}>CLEAR</button></div>
+      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy || mediaUploading}>{busy ? "SAVING..." : editingProjectSlug ? "SAVE PROJECT" : "CREATE PROJECT"}</button><button type="button" style={buttonStyle} disabled={mediaUploading} onClick={() => { if (JSON.stringify(projectForm) !== projectBaseline && !window.confirm("Discard your unsaved project changes?")) return; setProjectForm(EMPTY_PROJECT); setProjectBaseline(JSON.stringify(EMPTY_PROJECT)); setEditingProjectSlug(undefined); }}>CLEAR</button></div>
     </form>
   );
 
@@ -392,14 +488,26 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Short description" value={serviceForm.shortDescription} onChange={(value) => updateService("shortDescription", value)} wide />
       <TextField label="Full description" value={serviceForm.description} onChange={(value) => updateService("description", value)} multiline wide />
       <TextField label="Features (one per line)" value={serviceForm.features.join("\n")} onChange={(value) => updateService("features", splitList(value))} multiline wide />
-      <TextField label="Image URL" type="url" value={serviceForm.imageUrl} onChange={(value) => updateService("imageUrl", value)} wide />
-      {serviceForm.imageUrl && <ImageWithFallback className="cms-image-preview" src={serviceForm.imageUrl} alt="Service image preview" />}
-      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
+      <CloudinaryUpload
+        label="Service image"
+        assets={serviceForm.imageAsset ? [serviceForm.imageAsset] : []}
+        onUploadingChange={setMediaUploading}
+        altText={`${serviceForm.title || "Service"} image`}
+        onChange={(assets) => {
+          const nextAsset = assets[0];
+          updateService("imageAsset", nextAsset);
+          updateService("imageUrl", nextAsset?.url ?? "");
+        }}
+      />
+      <TextField label="Image URL (optional legacy/external image)" type="url" value={serviceForm.imageUrl} onChange={(value) => {
+        updateService("imageUrl", value);
+        if (value !== serviceForm.imageAsset?.url) updateService("imageAsset", undefined);
+      }} wide />
       <TextField label="Display order" type="number" value={String(serviceForm.order)} onChange={(value) => updateService("order", Number(value) || 0)} />
       <TextField label="SEO title" value={serviceForm.seoTitle} onChange={(value) => updateService("seoTitle", value)} />
       <TextField label="SEO meta description" value={serviceForm.seoDescription} onChange={(value) => updateService("seoDescription", value)} wide />
       <label className="cms-checkbox"><input type="checkbox" checked={serviceForm.published} onChange={(event) => updateService("published", event.target.checked)} /> Published</label>
-      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingServiceSlug ? "SAVE SERVICE" : "CREATE SERVICE"}</button><button type="button" style={buttonStyle} onClick={() => { if (JSON.stringify(serviceForm) !== serviceBaseline && !window.confirm("Discard your unsaved service changes?")) return; setServiceForm(EMPTY_SERVICE); setServiceBaseline(JSON.stringify(EMPTY_SERVICE)); setEditingServiceSlug(undefined); }}>CLEAR</button></div>
+      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy || mediaUploading}>{busy ? "SAVING..." : editingServiceSlug ? "SAVE SERVICE" : "CREATE SERVICE"}</button><button type="button" style={buttonStyle} disabled={mediaUploading} onClick={() => { if (JSON.stringify(serviceForm) !== serviceBaseline && !window.confirm("Discard your unsaved service changes?")) return; setServiceForm(EMPTY_SERVICE); setServiceBaseline(JSON.stringify(EMPTY_SERVICE)); setEditingServiceSlug(undefined); }}>CLEAR</button></div>
     </form>
   );
 
@@ -408,19 +516,31 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <TextField label="Company name" value={companyForm.name} onChange={(value) => updateCompany("name", value)} />
       <TextField label="Company ID" value={companyForm.id} onChange={(value) => updateCompany("id", slugify(value))} />
       <TextField label="Industry" value={companyForm.industry ?? ""} onChange={(value) => updateCompany("industry", value)} />
-      <TextField label="Logo image URL" type="url" value={companyForm.logo_url ?? ""} onChange={(value) => updateCompany("logo_url", value)} />
-      {companyForm.logo_url && <ImageWithFallback className="cms-image-preview" src={companyForm.logo_url} alt={`${companyForm.name || "Company"} logo preview`} />}
-      <p className="cms-upload-unavailable" role="note">{UPLOADS_DISABLED_MESSAGE}</p>
+      <CloudinaryUpload
+        label="Company logo"
+        assets={companyForm.logoAsset ? [companyForm.logoAsset] : []}
+        onUploadingChange={setMediaUploading}
+        altText={`${companyForm.name || "Company"} logo`}
+        onChange={(assets) => {
+          const nextAsset = assets[0];
+          updateCompany("logoAsset", nextAsset);
+          updateCompany("logo_url", nextAsset?.url ?? "");
+        }}
+      />
+      <TextField label="Logo image URL (optional legacy/external image)" type="url" value={companyForm.logo_url ?? ""} onChange={(value) => {
+        updateCompany("logo_url", value);
+        if (value !== companyForm.logoAsset?.url) updateCompany("logoAsset", undefined);
+      }} />
       <TextField label="Display order" type="number" value={String(companyForm.order ?? 0)} onChange={(value) => updateCompany("order", Number(value) || 0)} />
       <label className="cms-checkbox"><input type="checkbox" checked={companyForm.published === true} onChange={(event) => updateCompany("published", event.target.checked)} /> Published</label>
       <div className="cms-form-actions">
-        <button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingCompanyId ? "SAVE COMPANY" : "CREATE COMPANY"}</button>
+        <button type="submit" style={primaryStyle} disabled={busy || mediaUploading}>{busy ? "SAVING..." : editingCompanyId ? "SAVE COMPANY" : "CREATE COMPANY"}</button>
         <button type="button" style={buttonStyle} onClick={() => {
           if (JSON.stringify(companyForm) !== companyBaseline && !window.confirm("Discard your unsaved company changes?")) return;
           setCompanyForm(EMPTY_COMPANY);
           setCompanyBaseline(JSON.stringify(EMPTY_COMPANY));
           setEditingCompanyId(undefined);
-        }}>CLEAR</button>
+        }} disabled={mediaUploading}>CLEAR</button>
       </div>
     </form>
   );
@@ -430,7 +550,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <div className="cms-shell">
         <header className="cms-header">
           <div><p className="cms-kicker">TEKWORLD ADMIN</p><h1>Content studio</h1></div>
-          <div className="cms-header-actions"><span className="cms-muted">{user?.email}</span><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes and sign out?")) return; void signOutAdmin(); }}>SIGN OUT</button><a className="cms-back-link" href="/">VIEW WEBSITE ↗</a></div>
+          <div className="cms-header-actions"><span className="cms-muted">{user?.email}</span><button style={buttonStyle} disabled={mediaUploading} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes and sign out?")) return; void signOutAdmin(); }}>SIGN OUT</button><a className="cms-back-link" href="/" onClick={(event) => { event.preventDefault(); requestClose(); }}>VIEW WEBSITE ↗</a></div>
         </header>
         {status && <div className={status.includes("failed") || status.includes("Could not") ? "cms-notice is-error" : "cms-notice"} role="status">{status}<button onClick={() => setStatus("")} aria-label="Dismiss message">×</button></div>}
         <div className="cms-layout">
@@ -458,7 +578,7 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <h3 className="cms-subheading">Projects ({projects.length})</h3>
               {projects.map((project) => <article className="cms-list-row cms-project-row" key={project.slug}>
                 <div>{project.coverImage && <ImageWithFallback src={project.coverImage} alt="" />}<span>{project.title}<small>{project.slug} · {project.status} · order {project.order}</small></span></div>
-                <div className="cms-row-actions"><button style={buttonStyle} onClick={() => void toggleFeatured(project)}>{project.featured ? "UNFEATURE" : "FEATURE"}</button><a style={buttonStyle} href={`/work/${encodeURIComponent(project.slug)}`} target="_blank" rel="noreferrer">PREVIEW</a><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...project, services: [...project.services], technologies: [...project.technologies], gallery: [...project.gallery] }; setEditingProjectSlug(project.slug); setProjectForm(next); setProjectBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete "${project.title}"? This cannot be undone.`)) return; try { await removeProject(project.slug); await refresh(); notify("Project deleted."); } catch (error) { notify(`Could not delete project: ${friendlyError(error)}`); } }}>DELETE</button></div>
+                <div className="cms-row-actions"><button style={buttonStyle} onClick={() => void toggleFeatured(project)}>{project.featured ? "UNFEATURE" : "FEATURE"}</button><a style={buttonStyle} href={`/work/${encodeURIComponent(project.slug)}?preview=1`} target="_blank" rel="noreferrer">PREVIEW</a><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...project, services: [...project.services], technologies: [...project.technologies], gallery: [...project.gallery], galleryAssets: [...(project.galleryAssets ?? [])] }; setEditingProjectSlug(project.slug); setProjectForm(next); setProjectBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete "${project.title}"? This cannot be undone.`)) return; try { await removeProject(project.slug); await refresh(); notify("Project deleted."); } catch (error) { notify(`Could not delete project: ${friendlyError(error)}`); } }}>DELETE</button></div>
               </article>)}
             </section>}
 
@@ -492,23 +612,86 @@ export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </article>)}
             </section>}
 
-            {section === "homepage" && <section><p className="cms-kicker">PAGES & HOMEPAGE</p><h2>Homepage content</h2><form className="cms-form-grid" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { await saveHomepageContent(homepage); notify("Homepage content saved."); } catch (error) { notify(`Could not save homepage: ${friendlyError(error)}`); } finally { setBusy(false); } }}>
+            {section === "homepage" && <section><p className="cms-kicker">PAGES & HOMEPAGE</p><h2>Homepage content</h2><form className="cms-form-grid" onSubmit={async (event) => {
+              event.preventDefault();
+              if (busy) return;
+              setBusy(true);
+              try {
+                await saveHomepageContent(homepage);
+                setHomepageBaseline(JSON.stringify(homepage));
+                notify("Homepage content saved.");
+              } catch (error) {
+                notify(`Could not save homepage: ${friendlyError(error)}`);
+              } finally {
+                setBusy(false);
+              }
+            }}>
               <TextField label="Eyebrow" value={homepage.eyebrow} onChange={(value) => setHomepage((current) => ({ ...current, eyebrow: value }))} wide />
               <TextField label="Headline" value={homepage.headline} onChange={(value) => setHomepage((current) => ({ ...current, headline: value }))} wide />
               <TextField label="Description" value={homepage.description} onChange={(value) => setHomepage((current) => ({ ...current, description: value }))} multiline wide />
+              <Field label="Theme color">
+                <div className="cms-theme-color-control">
+                  <input
+                    type="color"
+                    value={homepage.themeColor}
+                    aria-label="Choose website theme color"
+                    onChange={(event) => setHomepage((current) => ({ ...current, themeColor: event.target.value }))}
+                  />
+                  <code>{homepage.themeColor}</code>
+                </div>
+              </Field>
+              <Field label="Landing page sections — order and visibility" wide>
+                <ol className="cms-homepage-sections">
+                  {homepage.sectionOrder.map((sectionId, index) => (
+                    <li key={sectionId}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={!homepage.hiddenSections.includes(sectionId)}
+                          onChange={(event) => setHomepage((current) => ({
+                            ...current,
+                            hiddenSections: event.target.checked
+                              ? current.hiddenSections.filter((item) => item !== sectionId)
+                              : [...current.hiddenSections, sectionId],
+                          }))}
+                        />
+                        <span>{index + 1}. {HOMEPAGE_SECTION_LABELS[sectionId]}</span>
+                      </label>
+                      <div>
+                        <button type="button" aria-label={`Move ${HOMEPAGE_SECTION_LABELS[sectionId]} up`} disabled={index === 0} onClick={() => moveHomepageSection(sectionId, -1)}>↑</button>
+                        <button type="button" aria-label={`Move ${HOMEPAGE_SECTION_LABELS[sectionId]} down`} disabled={index === homepage.sectionOrder.length - 1} onClick={() => moveHomepageSection(sectionId, 1)}>↓</button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </Field>
               <Field label="Featured projects" wide><div className="cms-feature-list">{projects.filter((project) => project.status === "published").map((project) => <label key={project.id}><input type="checkbox" checked={homepage.featuredProjectIds.includes(project.id)} onChange={(event) => setHomepage((current) => ({ ...current, featuredProjectIds: event.target.checked ? [...current.featuredProjectIds, project.id] : current.featuredProjectIds.filter((id) => id !== project.id) }))} /> {project.title}</label>)}</div></Field>
-              <div className="cms-form-actions"><button style={primaryStyle} type="submit" disabled={busy}>SAVE HOMEPAGE</button></div>
-            </form><p className="cms-muted">Homepage messaging defaults to the existing TekWorld positioning until you save changes. Service and project content remains controlled from its own sections.</p></section>}
+              <div className="cms-form-actions"><button style={primaryStyle} type="submit" disabled={busy || mediaUploading}>SAVE HOMEPAGE</button></div>
+            </form><p className="cms-muted">This editor lets you reorder and show/hide the existing homepage sections, adjust the brand accent color, choose featured projects, and edit the hero copy. Each section’s content remains editable in its own CMS area. Changes affect the homepage layout; this does not provide a freeform canvas for arbitrary elements.</p></section>}
 
-            {section === "media" && <section><p className="cms-kicker">ASSETS</p><h2>Media library</h2><p className="cms-upload-unavailable" role="status">{UPLOADS_DISABLED_MESSAGE}</p><p className="cms-muted">You can use any publicly accessible HTTPS image URL in project, service, or company image fields.</p></section>}
+            {section === "media" && <section><p className="cms-kicker">ASSETS</p><h2>Media library</h2>
+              <p className="cms-muted">Cloudinary images currently referenced by projects, services, and companies. Uploads are unsigned and public; manage access and allowed formats in your Cloudinary upload preset.</p>
+              {!mediaLibrary.length
+                ? <p className="cms-muted">No Cloudinary images are linked yet. Upload one from a project, service, or company editor.</p>
+                : <div className="cms-media-grid">{mediaLibrary.map((asset) => <article className="cms-media-card" key={asset.publicId}>
+                    <ImageWithFallback src={asset.url} alt={asset.alt} loading="lazy" />
+                    <strong>{asset.source}</strong>
+                    <small>{asset.publicId}</small>
+                    <small>{asset.width} × {asset.height}</small>
+                  </article>)}</div>}
+              <p className="cms-muted">Removing an image from an editor only detaches its Firestore reference. This browser cannot delete Cloudinary assets; use a trusted server-side process for deletion after confirming the asset is not used elsewhere.</p>
+            </section>}
 
             {section === "enquiries" && <section><p className="cms-kicker">INBOX</p><h2>Messages & enquiries</h2>{enquiries.map((enquiry) => <article className="cms-enquiry" key={enquiry.id}><div className="cms-list-row"><strong>{enquiry.name}</strong><span className="cms-muted">{enquiry.status}</span></div><a href={`mailto:${encodeURIComponent(enquiry.email)}`}>{enquiry.email}</a><p>{enquiry.service}</p><p>{enquiry.message}</p><div className="cms-row-actions"><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, enquiry.status === "new" ? "read" : "new"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>{enquiry.status === "new" ? "MARK READ" : "MARK NEW"}</button><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, "archived"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>ARCHIVE</button><button style={buttonStyle} onClick={async () => { if (!window.confirm("Delete this enquiry?")) return; try { await deleteEnquiry(enquiry.id); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>DELETE</button></div></article>)}{!enquiries.length && <p className="cms-muted">No enquiries received yet.</p>}</section>}
 
-            {section === "settings" && <section><p className="cms-kicker">SECURITY & CONFIGURATION</p><h2>Settings</h2><p>Signed in as <strong>{user?.email}</strong></p><p className="cms-muted">Admin access is authorized by a read-only Firestore document at <code>admins/{user?.uid}</code>. Firestore and Storage security rules enforce administrator access independently from this interface.</p><p className="cms-muted">Configure Firebase Authentication Email/Password, enable Firestore and Storage, provision your admin UID from a trusted Firebase Console or server-side process, and deploy the repository security rules before using content operations.</p><p className="cms-muted">Legacy Supabase data is not deleted or modified. Export/import it separately before retiring that project.</p></section>}
+            {section === "settings" && <section><p className="cms-kicker">SECURITY & CONFIGURATION</p><h2>Settings</h2><p>Signed in as <strong>{user?.email}</strong></p><p className="cms-muted">Admin access is authorized by a read-only Firestore document at <code>admins/{user?.uid}</code>. Firestore rules enforce access independently from this interface.</p><p className="cms-muted">Configure Firebase Authentication Email/Password, the existing Firestore database, Cloudinary cloud name, and an unsigned image-only upload preset. Provision admin UIDs from Firebase Console or a trusted server-side process. Never add a Cloudinary API secret to frontend environment variables.</p><p className="cms-muted">Cloudinary upload configuration is public client configuration, not authentication. The preset should restrict image formats, size, and destination folder. Asset deletion requires a trusted server-side process.</p></section>}
             </>}
           </main>
         </div>
-        <footer className="cms-footer"><span>{busy ? "Working…" : "Changes save directly to Firebase."}</span><button style={buttonStyle} onClick={() => void refresh()}>REFRESH CONTENT</button></footer>
+        <footer className="cms-footer"><span>{busy ? "Working…" : "Changes save directly to Firebase."}</span><button style={buttonStyle} disabled={mediaUploading || busy} onClick={() => {
+          if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes and reload Firebase content?")) return;
+          void refresh();
+        }}>REFRESH CONTENT</button></footer>
       </div>
     </main>
   );
