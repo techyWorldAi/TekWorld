@@ -16,6 +16,7 @@ export const Footer: React.FC<FooterProps> = ({ onAdminClick }) => {
 
   return (
     <footer
+      id="about"
       style={{
         background: "#0a0a0a",
         borderTop: "1px solid #1a1a1a",

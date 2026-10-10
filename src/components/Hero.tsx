@@ -1,4 +1,12 @@
 import React, { useEffect, useState } from "react";
+import type { HomepageContent } from "../types";
+
+const DEFAULT_CONTENT: HomepageContent = {
+  eyebrow: "DIGITAL PRESENCE, REIMAGINED",
+  headline: "Build an online presence that stands out.",
+  description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
+  featuredProjectIds: [],
+};
 
 const STATS = [
   { value: "50+", label: "Businesses Served" },
@@ -7,10 +15,36 @@ const STATS = [
   { value: "Nairobi", label: "HQ, Kenya" },
 ];
 
-export const Hero: React.FC = () => {
+const HeroWaveDivider: React.FC = () => (
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 1440 120"
+    preserveAspectRatio="none"
+    style={{
+      position: "absolute",
+      left: 0,
+      bottom: -1,
+      width: "100%",
+      height: "clamp(56px, 8vw, 120px)",
+      display: "block",
+      pointerEvents: "none",
+      zIndex: 1,
+    }}
+  >
+    <path
+      d="M0 58 C205 67 365 104 555 94 C760 83 916 39 1080 28 C1218 19 1340 34 1440 24 L1440 120 L0 120 Z"
+      fill="#ffffff"
+    />
+  </svg>
+);
+
+export const Hero: React.FC<{ content?: HomepageContent }> = ({ content = DEFAULT_CONTENT }) => {
   const [isCompact, setIsCompact] = useState(() => window.innerWidth <= 900);
   const [isShort, setIsShort] = useState(() => window.innerHeight <= 680);
   const [headlineVisible, setHeadlineVisible] = useState(false);
+  const headlineWords = content.headline.trim().split(/\s+/);
+  const headlineLead = headlineWords.slice(0, 3).join(" ");
+  const headlineEmphasis = headlineWords.slice(3).join(" ");
 
   useEffect(() => {
     const onResize = () => {
@@ -36,13 +70,14 @@ export const Hero: React.FC = () => {
         backgroundSize: "auto, cover",
         backgroundPosition: isCompact ? "center, 80% center" : "center, center center",
         backgroundRepeat: "no-repeat",
+        backgroundAttachment: "scroll, fixed",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
         boxSizing: "border-box",
         position: "relative",
         overflow: "hidden",
-        padding: isCompact ? `${isShort ? 76 : 88}px 20px ${isShort ? 16 : 24}px` : "96px 40px 36px",
+        padding: isCompact ? `${isShort ? 76 : 88}px 20px ${isShort ? 16 : 68}px` : "96px 40px 104px",
       }}
     >
       <div
@@ -58,7 +93,7 @@ export const Hero: React.FC = () => {
           width: "100%",
           margin: isCompact ? "0 auto auto" : "18px auto auto",
           position: "relative",
-          zIndex: 1,
+          zIndex: 2,
         }}
       >
         <div style={{ maxWidth: isCompact ? 640 : 940 }}>
@@ -79,7 +114,7 @@ export const Hero: React.FC = () => {
             }}
           >
             <span style={{ width: 5, height: 5, background: "#168cff", borderRadius: "50%" }} />
-            DIGITAL PRESENCE, REIMAGINED
+            {content.eyebrow}
           </p>
 
           <h1
@@ -95,9 +130,8 @@ export const Hero: React.FC = () => {
               textTransform: "uppercase",
             }}
           >
-            Build an online
-            <br />
-            <span style={{ color: "rgba(255,255,255,0.42)" }}>presence </span>
+            {headlineLead}
+            {headlineEmphasis && <><br /><span style={{ color: "rgba(255,255,255,0.42)" }}>{headlineEmphasis.split(" ").slice(0, -2).join(" ")}{" "}</span></>}
             <span
               style={{
                 display: "inline-block",
@@ -108,7 +142,7 @@ export const Hero: React.FC = () => {
                 transition: "opacity 0.35s ease, transform 0.35s ease",
               }}
             >
-              that stands out.
+              {headlineEmphasis ? headlineEmphasis.split(" ").slice(-2).join(" ") : ""}
             </span>
           </h1>
 
@@ -123,7 +157,7 @@ export const Hero: React.FC = () => {
               margin: `${isShort ? 12 : 20}px 0 ${isShort ? 14 : 24}px`,
             }}
           >
-            We create distinctive digital experiences that help your business get noticed, earn trust, and grow.
+            {content.description}
           </p>
 
           <div style={{ display: "flex", flexDirection: isCompact ? "column" : "row", alignItems: "flex-start", gap: isShort ? 8 : 12, flexWrap: "wrap" }}>
@@ -176,7 +210,7 @@ export const Hero: React.FC = () => {
       <div
         style={{
           position: "relative",
-          zIndex: 1,
+          zIndex: 2,
           maxWidth: 1400,
           width: "100%",
           margin: "auto auto 0",
@@ -207,6 +241,7 @@ export const Hero: React.FC = () => {
           </div>
         ))}
       </div>
+      <HeroWaveDivider />
     </section>
   );
 };

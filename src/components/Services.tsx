@@ -67,7 +67,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView, isMob
         color: hovered ? "rgba(255,255,255,0.5)" : "#777777", margin: "0 0 32px",
         transition: "color 0.35s",
       }}>
-        {service.desc}
+        {service.shortDescription || service.description}
       </p>
 
       {/* Features */}
@@ -91,7 +91,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ service, delay, inView, isMob
 };
 
 /* ── Services section ────────────────────────────── */
-export const Services: React.FC = () => {
+export const Services: React.FC<{ services?: ServiceItem[] }> = ({ services = SERVICES }) => {
   const [ref, inView] = useInView();
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
 
@@ -130,7 +130,7 @@ export const Services: React.FC = () => {
             background: "#e8e8e8",
           }}
         >
-          {SERVICES.map((s, i) => (
+          {services.map((s, i) => (
             <ServiceCard key={s.id} service={s} delay={i * 90} inView={inView} isMobile={isMobile} />
           ))}
         </div>

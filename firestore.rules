@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /projects/{projectId} {
+      allow get, list: if isAdmin() || resource.data.status == "published";
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /services/{serviceId} {
+      allow get, list: if isAdmin() || resource.data.published == true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /pages/{pageId} {
+      allow get, list: if isAdmin() || resource.data.published == true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /siteSettings/{settingId} {
+      allow get: if settingId == "homepage" || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /enquiries/{enquiryId} {
+      allow create: if request.resource.data.keys().hasOnly([
+          "name", "email", "service", "message", "status", "createdAt"
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 3
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.service is string
+        && request.resource.data.service.size() <= 160
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 5000
+        && request.resource.data.status == "new"
+        && request.resource.data.createdAt == request.time;
+      allow get, list, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

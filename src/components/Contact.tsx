@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { FaMapMarkerAlt, FaEnvelope, FaPhoneAlt } from "react-icons/fa";
+import { createEnquiry } from "../firebaseCms";
 
 interface FormData {
   name: string;
@@ -33,6 +34,7 @@ export const Contact: React.FC = () => {
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
 
   React.useEffect(() => {
@@ -45,14 +47,23 @@ export const Contact: React.FC = () => {
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Replace with real submission logic (e.g. EmailJS, Supabase, etc.)
-    setTimeout(() => {
+    setError("");
+    try {
+      await createEnquiry({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        service: form.service.trim(),
+        message: form.message.trim(),
+      });
       setLoading(false);
       setSent(true);
-    }, 700);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : "We couldn't send your message. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -101,6 +112,7 @@ export const Contact: React.FC = () => {
             </div>
           ) : (
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+              {error && <p role="alert" style={{ color: "#ff9999", fontFamily: "system-ui, sans-serif", fontSize: 13 }}>{error}</p>}
               {(
                 [
                   ["name",    "Full Name",               "text"],
@@ -124,6 +136,7 @@ export const Contact: React.FC = () => {
               <textarea
                 placeholder="Tell us about your project"
                 rows={4}
+                required
                 value={form.message}
                 onChange={set("message")}
                 style={{ ...lineInput, resize: "none" }}

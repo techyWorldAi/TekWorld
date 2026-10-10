@@ -6,6 +6,8 @@ import {
   onAuthStateChanged,
   type User,
 } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "",
@@ -30,6 +32,8 @@ export const app: FirebaseApp | null = firebaseEnabled
   : null;
 
 export const auth = app ? getAuth(app) : null;
+export const db = app ? getFirestore(app) : null;
+export const storage = app && firebaseConfig.storageBucket ? getStorage(app) : null;
 
 export const signInAdmin = (email: string, password: string) => {
   if (!auth) {

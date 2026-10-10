@@ -1,515 +1,449 @@
-import React, { useState } from "react";
-import { Company, Story, CMSData, Platform } from "../types";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { auth, firebaseEnabled, signInAdmin, signOutAdmin } from "../firebase";
+import { SERVICES } from "../constants";
 import {
-  testConnection,
-  loadCompanies,
-  loadStories,
-  addCompany,
-  addStory,
-  deleteRecord,
-  CREATE_TABLES_SQL,
-  SupabaseConfig,
-} from "../hooks/useSupabase";
-import { ADMIN_PIN } from "../constants";
-import { auth, firebaseEnabled, signInAdmin } from "../firebase";
+  deleteEnquiry,
+  isAuthorizedAdmin,
+  listEnquiries,
+  listMedia,
+  listProjects,
+  listServices,
+  loadHomepageContent,
+  removeMedia,
+  removeProject,
+  removeService,
+  saveHomepageContent,
+  saveProject,
+  saveService,
+  seedDefaultServices,
+  updateEnquiryStatus,
+  uploadMedia,
+} from "../firebaseCms";
+import type {
+  Enquiry,
+  HomepageContent,
+  MediaAsset,
+  Project,
+  ProjectFields,
+  ServiceItem,
+} from "../types";
 
-/* ── Shared sub-components ───────────────────────── */
+type Section = "overview" | "projects" | "services" | "homepage" | "media" | "enquiries" | "settings";
+const SECTIONS: { id: Section; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "projects", label: "Projects / Our Work" },
+  { id: "services", label: "Services" },
+  { id: "homepage", label: "Pages & Homepage" },
+  { id: "media", label: "Media Library" },
+  { id: "enquiries", label: "Messages / Enquiries" },
+  { id: "settings", label: "Settings" },
+];
 
-const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    <label style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#555555", fontWeight: 600 }}>
-      {label}
-    </label>
+const EMPTY_PROJECT: ProjectFields = {
+  title: "", slug: "", summary: "", description: "", client: "", category: "",
+  services: [], technologies: [], coverImage: "", gallery: [], challenge: "",
+  solution: "", results: "", externalUrl: "", seoTitle: "", seoDescription: "",
+  status: "draft", featured: false, order: 0,
+};
+
+const EMPTY_SERVICE: ServiceItem = {
+  id: "", slug: "", title: "", tag: "", price: "", currency: "KES", priceNote: "",
+  shortDescription: "", description: "", features: [], imageUrl: "", published: false,
+  order: 0, seoTitle: "", seoDescription: "",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", padding: "11px 12px", color: "#f4f4f4", background: "#111",
+  border: "1px solid #303030", font: "14px system-ui, sans-serif", outlineColor: "#168cff",
+};
+const buttonStyle: React.CSSProperties = {
+  border: "1px solid #343434", padding: "10px 14px", color: "#ddd", background: "transparent",
+  font: "600 11px system-ui, sans-serif", letterSpacing: "1px", cursor: "pointer",
+};
+const primaryStyle: React.CSSProperties = { ...buttonStyle, color: "#101010", borderColor: "#fff", background: "#fff" };
+
+const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const splitList = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+const friendlyError = (error: unknown) => error instanceof Error ? error.message : "An unexpected error occurred.";
+
+const Field: React.FC<{ label: string; children: React.ReactNode; wide?: boolean }> = ({ label, children, wide }) => (
+  <label style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0, gridColumn: wide ? "1 / -1" : undefined }}>
+    <span style={{ color: "#929292", font: "600 10px system-ui, sans-serif", letterSpacing: "1.5px", textTransform: "uppercase" }}>{label}</span>
     {children}
-  </div>
+  </label>
 );
 
-const DarkInput: React.FC<{
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-}> = ({ value, onChange, placeholder, type = "text" }) => (
-  <input
-    type={type}
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    placeholder={placeholder}
-    className="dark-input"
-  />
+const TextField: React.FC<{
+  label: string; value: string; onChange: (value: string) => void; multiline?: boolean; wide?: boolean; type?: string;
+}> = ({ label, value, onChange, multiline, wide, type }) => (
+  <Field label={label} wide={wide}>
+    {multiline
+      ? <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+      : <input type={type ?? "text"} value={value} onChange={(event) => onChange(event.target.value)} style={inputStyle} />}
+  </Field>
 );
 
-const BtnPrimary: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, ...props }) => (
-  <button
-    {...props}
-    style={{
-      background: "#ffffff", color: "#000000", border: "none",
-      padding: "10px 24px", cursor: "pointer",
-      fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "2px", fontWeight: 700,
-      transition: "opacity 0.2s",
-      ...props.style,
-    }}
-    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = "0.82")}
-    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = "1")}
-  >
-    {children}
-  </button>
-);
-
-const BtnGhost: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ children, ...props }) => (
-  <button
-    {...props}
-    style={{
-      background: "transparent", color: "#666666",
-      border: "1px solid #2a2a2a", padding: "10px 24px", cursor: "pointer",
-      fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "2px",
-      transition: "color 0.2s, border-color 0.2s",
-      ...props.style,
-    }}
-    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "#aaa"; (e.currentTarget as HTMLElement).style.borderColor = "#555"; }}
-    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "#666"; (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"; }}
-  >
-    {children}
-  </button>
-);
-
-/* ── Types ───────────────────────────────────────── */
-type Tab = "config" | "companies" | "stories" | "sql";
-
-interface AdminPanelProps {
-  onClose: () => void;
-  onDataSave: (data: CMSData) => void;
-}
-
-/* ── Main component ──────────────────────────────── */
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onDataSave }) => {
-  const [authed, setAuthed] = useState(Boolean(auth?.currentUser));
+export const AdminPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [user, setUser] = useState<User | null>(auth?.currentUser ?? null);
+  const [authorized, setAuthorized] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [pin, setPin] = useState("");
-  const [tab, setTab] = useState<Tab>("config");
+  const [section, setSection] = useState<Section>("overview");
   const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
-
-  const [sbUrl, setSbUrl] = useState(localStorage.getItem("tw_sb_url") ?? "");
-  const [sbKey, setSbKey] = useState(localStorage.getItem("tw_sb_key") ?? "");
-
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [stories, setStories] = useState<Story[]>([]);
-
-  const [newCo, setNewCo] = useState({ name: "", industry: "", logo_url: "" });
-  const [newSt, setNewSt] = useState({
-    title: "", company_name: "", description: "",
-    platform: "linkedin" as Platform, link: "",
+  const [busy, setBusy] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
+  const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [homepage, setHomepage] = useState<HomepageContent>({
+    eyebrow: "DIGITAL PRESENCE, REIMAGINED",
+    headline: "Build an online presence that stands out.",
+    description: "We create distinctive digital experiences that help your business get noticed, earn trust, and grow.",
+    featuredProjectIds: [],
   });
+  const [projectForm, setProjectForm] = useState<ProjectFields>(EMPTY_PROJECT);
+  const [projectBaseline, setProjectBaseline] = useState(JSON.stringify(EMPTY_PROJECT));
+  const [editingProjectSlug, setEditingProjectSlug] = useState<string>();
+  const [serviceForm, setServiceForm] = useState<ServiceItem>(EMPTY_SERVICE);
+  const [serviceBaseline, setServiceBaseline] = useState(JSON.stringify(EMPTY_SERVICE));
+  const [editingServiceSlug, setEditingServiceSlug] = useState<string>();
+  const [uploadProgress, setUploadProgress] = useState<number>();
 
-  const cfg: SupabaseConfig = { url: sbUrl, key: sbKey };
-
-  const flash = (msg: string) => {
-    setStatus(msg);
-    setTimeout(() => setStatus(""), 5000);
-  };
-
-  const handleFirebaseLogin = async () => {
-    if (!firebaseEnabled) {
-      if (pin === ADMIN_PIN) {
-        setAuthed(true);
-        setStatus("✓ Demo access enabled");
+  const notify = useCallback((message: string) => setStatus(message), []);
+  const checkAdministratorAccess = useCallback(async (currentUser: User | null) => {
+    setAuthLoading(true);
+    setAuthorized(false);
+    if (!currentUser) {
+      setAuthLoading(false);
+      return;
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        if (await isAuthorizedAdmin(currentUser.uid)) {
+          setAuthorized(true);
+          setStatus("");
+        } else {
+          notify("This Firebase account does not have TekWorld administrator access. Ask the project owner to enable its UID in admins/{uid}.");
+        }
+        setAuthLoading(false);
+        return;
+      } catch (error) {
+        const detail = friendlyError(error);
+        const offline = /offline|unavailable|network/i.test(detail);
+        if (offline && attempt < 2) {
+          await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)));
+          continue;
+        }
+        notify(offline
+          ? `Firebase signed you in, but Firestore could not verify administrator access. Check your connection and confirm Cloud Firestore is enabled for this Firebase project. Details: ${detail}`
+          : `Administrator authorization failed: ${detail}`);
+        setAuthLoading(false);
         return;
       }
+    }
+  }, [notify]);
+  const hasUnsavedChanges =
+    JSON.stringify(projectForm) !== projectBaseline ||
+    JSON.stringify(serviceForm) !== serviceBaseline;
+  const requestClose = () => {
+    if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
+    onClose();
+  };
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    try {
+      const [nextProjects, nextServices, nextEnquiries, nextHomepage] = await Promise.all([
+        listProjects(true), listServices(true), listEnquiries(), loadHomepageContent(),
+      ]);
+      setProjects(nextProjects);
+      setServices(nextServices);
+      setEnquiries(nextEnquiries);
+      setHomepage(nextHomepage);
+    } catch (error) {
+      notify(`Could not load CMS data: ${friendlyError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [notify]);
 
-      flash("✗ Firebase not configured. Add VITE_FIREBASE_* values, or use the demo PIN.");
+  useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
       return;
     }
+    return onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      void checkAdministratorAccess(nextUser);
+    });
+  }, [checkAdministratorAccess]);
 
-    if (!email.trim() || !password.trim()) {
-      flash("✗ Enter your email and password");
-      return;
-    }
+  useEffect(() => {
+    if (!user || authorized) return;
+    const retryWhenOnline = () => void checkAdministratorAccess(user);
+    window.addEventListener("online", retryWhenOnline);
+    return () => window.removeEventListener("online", retryWhenOnline);
+  }, [user, authorized, checkAdministratorAccess]);
 
-    setLoading(true);
+  useEffect(() => {
+    if (authorized) void refresh();
+  }, [authorized, refresh]);
+
+  useEffect(() => {
+    if (!authorized || section !== "media") return;
+    setBusy(true);
+    listMedia().then(setMedia).catch((error: unknown) => notify(`Could not load media: ${friendlyError(error)}`))
+      .finally(() => setBusy(false));
+  }, [authorized, section, notify]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") requestClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [requestClose]);
+
+  const signIn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setStatus("");
     try {
       await signInAdmin(email.trim(), password);
-      setAuthed(true);
-      flash("✓ Signed in successfully");
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      flash(`✗ ${message}`);
+    } catch (error) {
+      notify(`Sign-in failed: ${friendlyError(error)}`);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
-  /* Actions */
-  const handleSaveConfig = () => {
-    localStorage.setItem("tw_sb_url", sbUrl);
-    localStorage.setItem("tw_sb_key", sbKey);
-    flash("✓ Config saved locally");
-  };
+  const updateProject = <K extends keyof ProjectFields>(key: K, value: ProjectFields[K]) =>
+    setProjectForm((current) => ({ ...current, [key]: value }));
+  const updateService = <K extends keyof ServiceItem>(key: K, value: ServiceItem[K]) =>
+    setServiceForm((current) => ({ ...current, [key]: value }));
 
-  const handleTest = async () => {
-    setLoading(true);
+  const saveProjectForm = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const slug = slugify(projectForm.slug || projectForm.title);
+    if (!projectForm.title.trim() || !slug) return notify("Project title and a valid slug are required.");
+    setBusy(true);
     try {
-      await testConnection(cfg);
-      setConnected(true);
-      flash("✓ Connected to Supabase");
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
+      await saveProject({ ...projectForm, title: projectForm.title.trim(), slug }, editingProjectSlug);
+      setProjectForm(EMPTY_PROJECT);
+      setProjectBaseline(JSON.stringify(EMPTY_PROJECT));
+      setEditingProjectSlug(undefined);
+      await refresh();
+      notify("Project saved.");
+    } catch (error) {
+      notify(`Could not save project: ${friendlyError(error)}`);
+    } finally {
+      setBusy(false);
     }
-    setLoading(false);
   };
 
-  const handleLoad = async () => {
-    setLoading(true);
+  const saveServiceForm = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const slug = slugify(serviceForm.slug || serviceForm.title);
+    if (!serviceForm.title.trim() || !slug) return notify("Service title and a valid slug are required.");
+    setBusy(true);
     try {
-      const [c, s] = await Promise.all([loadCompanies(cfg), loadStories(cfg)]);
-      setCompanies(c);
-      setStories(s);
-      onDataSave({ companies: c, stories: s });
-      flash(`✓ Loaded ${c.length} companies, ${s.length} stories`);
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
+      await saveService({ ...serviceForm, id: slug, title: serviceForm.title.trim(), slug }, editingServiceSlug);
+      setServiceForm(EMPTY_SERVICE);
+      setServiceBaseline(JSON.stringify(EMPTY_SERVICE));
+      setEditingServiceSlug(undefined);
+      await refresh();
+      notify("Service saved.");
+    } catch (error) {
+      notify(`Could not save service: ${friendlyError(error)}`);
+    } finally {
+      setBusy(false);
     }
-    setLoading(false);
   };
 
-  const handleAddCompany = async () => {
-    if (!newCo.name.trim()) return flash("✗ Company name is required");
+  const toggleFeatured = async (project: Project) => {
     try {
-      const res = await addCompany(newCo, cfg);
-      const added = Array.isArray(res) ? res : [res];
-      const updated = [...added, ...companies];
-      setCompanies(updated);
-      onDataSave({ companies: updated, stories });
-      setNewCo({ name: "", industry: "", logo_url: "" });
-      flash("✓ Company added");
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
+      await saveProject({ ...project, featured: !project.featured }, project.slug);
+      await refresh();
+    } catch (error) {
+      notify(`Could not update featured project: ${friendlyError(error)}`);
     }
   };
 
-  const handleAddStory = async () => {
-    if (!newSt.title.trim()) return flash("✗ Title is required");
+  const upload = async (file: File, onDone: (asset: MediaAsset) => void) => {
+    if (!user) return notify("Sign in as an administrator before uploading.");
+    setUploadProgress(0);
     try {
-      const res = await addStory(newSt, cfg);
-      const added = Array.isArray(res) ? res : [res];
-      const updated = [...added, ...stories];
-      setStories(updated);
-      onDataSave({ companies, stories: updated });
-      setNewSt({ title: "", company_name: "", description: "", platform: "linkedin", link: "" });
-      flash("✓ Story added");
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
+      const asset = await uploadMedia(file, user.uid, setUploadProgress);
+      onDone(asset);
+      if (section === "media") setMedia((current) => [asset, ...current]);
+      notify("Image uploaded.");
+    } catch (error) {
+      notify(`Upload failed: ${friendlyError(error)}`);
+    } finally {
+      setUploadProgress(undefined);
     }
   };
 
-  const handleDeleteCompany = async (id: string) => {
-    try {
-      await deleteRecord("companies", id, cfg);
-      const updated = companies.filter((c) => c.id !== id);
-      setCompanies(updated);
-      onDataSave({ companies: updated, stories });
-      flash("✓ Deleted");
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
-    }
+  const projectCounts = useMemo(() => ({
+    published: projects.filter((project) => project.status === "published").length,
+    drafts: projects.filter((project) => project.status === "draft").length,
+    services: services.length,
+    enquiries: enquiries.filter((enquiry) => enquiry.status === "new").length,
+  }), [projects, services, enquiries]);
+  const changeSection = (nextSection: Section) => {
+    if (nextSection !== section && hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return;
+    setSection(nextSection);
   };
 
-  const handleDeleteStory = async (id: string) => {
-    try {
-      await deleteRecord("stories", id, cfg);
-      const updated = stories.filter((s) => s.id !== id);
-      setStories(updated);
-      onDataSave({ companies, stories: updated });
-      flash("✓ Deleted");
-    } catch (e: unknown) {
-      flash("✗ " + (e instanceof Error ? e.message : String(e)));
-    }
-  };
-
-  /* ── Firebase / PIN gate ── */
-  if (!authed) {
+  if (!user) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.97)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ background: "#111111", border: "1px solid #222222", padding: 48, width: 340 }}>
-          <div style={{ fontFamily: "Georgia, serif", fontSize: 24, fontWeight: 700, color: "#ffffff", marginBottom: 8 }}>Admin Access</div>
-          <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#555555", marginBottom: 20 }}>
-            {firebaseEnabled ? "Sign in with Firebase to continue" : "Add Firebase env vars or use the demo PIN"}
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className="dark-input"
-              autoFocus
-              disabled={!firebaseEnabled && Boolean(auth)}
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="dark-input"
-              disabled={!firebaseEnabled && Boolean(auth)}
-            />
-            {!firebaseEnabled && (
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && pin === ADMIN_PIN) setAuthed(true); }}
-                placeholder="Demo PIN"
-                className="dark-input"
-                style={{ letterSpacing: "8px", fontSize: 18 }}
-              />
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
-            <BtnPrimary
-              onClick={firebaseEnabled ? handleFirebaseLogin : () => {
-                if (pin === ADMIN_PIN) {
-                  setAuthed(true);
-                } else {
-                  flash("✗ Wrong PIN");
-                }
-              }}
-              disabled={loading}
-            >
-              {loading ? "SIGNING IN..." : "ENTER"}
-            </BtnPrimary>
-            <BtnGhost onClick={onClose}>CANCEL</BtnGhost>
-          </div>
-
-          {status && (
-            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#ff6666", marginTop: 12 }}>{status}</div>
-          )}
-        </div>
-      </div>
+      <main className="cms-page">
+        <form className="cms-login" onSubmit={signIn}>
+          <a href="/" className="cms-back-link">← Back to TekWorld</a>
+          <p className="cms-kicker">TEKWORLD ADMIN</p>
+          <h1 id="cms-login-title">Administrator sign in</h1>
+          <p className="cms-muted">Sign in with an authorized Firebase administrator account.</p>
+          {!firebaseEnabled && <p className="cms-error">Firebase is not configured. Add the VITE_FIREBASE_* environment values.</p>}
+          <Field label="EMAIL ADDRESS">
+            <input autoComplete="username" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="PASSWORD">
+            <input autoComplete="current-password" type="password" required value={password} onChange={(event) => setPassword(event.target.value)} style={inputStyle} />
+          </Field>
+          <button style={primaryStyle} disabled={busy || authLoading || !firebaseEnabled} type="submit">
+            {busy || authLoading ? "SIGNING IN..." : "SIGN IN"}
+          </button>
+          {status && <p className="cms-error" role="alert">{status}</p>}
+        </form>
+      </main>
     );
   }
 
-  /* ── Panel ── */
-  const tabBg = (t: Tab) => tab === t ? "#ffffff" : "transparent";
-  const tabColor = (t: Tab) => tab === t ? "#000000" : "#555555";
+  const renderProjectEditor = () => (
+    <form className="cms-form-grid" onSubmit={saveProjectForm}>
+      <TextField label="Project title" value={projectForm.title} onChange={(value) => updateProject("title", value)} />
+      <TextField label="URL slug" value={projectForm.slug} onChange={(value) => updateProject("slug", slugify(value))} />
+      <TextField label="Client / brand" value={projectForm.client} onChange={(value) => updateProject("client", value)} />
+      <TextField label="Category" value={projectForm.category} onChange={(value) => updateProject("category", value)} />
+      <TextField label="Short summary" value={projectForm.summary} onChange={(value) => updateProject("summary", value)} wide />
+      <TextField label="Full description" value={projectForm.description} onChange={(value) => updateProject("description", value)} multiline wide />
+      <TextField label="Services delivered (comma-separated)" value={projectForm.services.join(", ")} onChange={(value) => updateProject("services", splitList(value))} />
+      <TextField label="Technologies (comma-separated)" value={projectForm.technologies.join(", ")} onChange={(value) => updateProject("technologies", splitList(value))} />
+      <TextField label="Cover image URL" value={projectForm.coverImage} onChange={(value) => updateProject("coverImage", value)} wide />
+      {projectForm.coverImage && <img className="cms-image-preview" src={projectForm.coverImage} alt="Project cover preview" />}
+      <Field label="Upload cover image" wide><input type="file" accept="image/*" onChange={(event) => {
+        const file = event.currentTarget.files?.[0];
+        if (file) void upload(file, (asset) => updateProject("coverImage", asset.url));
+        event.currentTarget.value = "";
+      }} /></Field>
+      <Field label="Upload gallery images" wide><input type="file" accept="image/*" multiple onChange={(event) => {
+        const files = Array.from(event.currentTarget.files ?? []);
+        files.forEach((file) => void upload(file, (asset) => setProjectForm((current) => ({ ...current, gallery: [...current.gallery, asset.url] }))));
+        event.currentTarget.value = "";
+      }} /></Field>
+      <TextField label="Gallery image URLs (one per line)" value={projectForm.gallery.join("\n")} onChange={(value) => updateProject("gallery", splitList(value))} multiline wide />
+      <TextField label="Challenge" value={projectForm.challenge} onChange={(value) => updateProject("challenge", value)} multiline />
+      <TextField label="Solution" value={projectForm.solution} onChange={(value) => updateProject("solution", value)} multiline />
+      <TextField label="Results / outcomes" value={projectForm.results} onChange={(value) => updateProject("results", value)} multiline />
+      <TextField label="External project URL" value={projectForm.externalUrl} onChange={(value) => updateProject("externalUrl", value)} />
+      <TextField label="SEO title" value={projectForm.seoTitle} onChange={(value) => updateProject("seoTitle", value)} />
+      <TextField label="SEO meta description" value={projectForm.seoDescription} onChange={(value) => updateProject("seoDescription", value)} wide />
+      <TextField label="Display order" type="number" value={String(projectForm.order)} onChange={(value) => updateProject("order", Number(value) || 0)} />
+      <Field label="Publication status"><select value={projectForm.status} onChange={(event) => updateProject("status", event.target.value as ProjectFields["status"])} style={inputStyle}><option value="draft">Draft</option><option value="published">Published</option></select></Field>
+      <label className="cms-checkbox"><input type="checkbox" checked={projectForm.featured} onChange={(event) => updateProject("featured", event.target.checked)} /> Feature on homepage</label>
+      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingProjectSlug ? "SAVE PROJECT" : "CREATE PROJECT"}</button><button type="button" style={buttonStyle} onClick={() => { if (JSON.stringify(projectForm) !== projectBaseline && !window.confirm("Discard your unsaved project changes?")) return; setProjectForm(EMPTY_PROJECT); setProjectBaseline(JSON.stringify(EMPTY_PROJECT)); setEditingProjectSlug(undefined); }}>CLEAR</button></div>
+    </form>
+  );
+
+  const renderServiceEditor = () => (
+    <form className="cms-form-grid" onSubmit={saveServiceForm}>
+      <TextField label="Title" value={serviceForm.title} onChange={(value) => updateService("title", value)} />
+      <TextField label="URL slug" value={serviceForm.slug} onChange={(value) => updateService("slug", slugify(value))} />
+      <TextField label="Category label" value={serviceForm.tag} onChange={(value) => updateService("tag", value)} />
+      <TextField label="Starting price" value={serviceForm.price} onChange={(value) => updateService("price", value)} />
+      <TextField label="Currency" value={serviceForm.currency} onChange={(value) => updateService("currency", value)} />
+      <TextField label="Price note" value={serviceForm.priceNote} onChange={(value) => updateService("priceNote", value)} />
+      <TextField label="Short description" value={serviceForm.shortDescription} onChange={(value) => updateService("shortDescription", value)} wide />
+      <TextField label="Full description" value={serviceForm.description} onChange={(value) => updateService("description", value)} multiline wide />
+      <TextField label="Features (one per line)" value={serviceForm.features.join("\n")} onChange={(value) => updateService("features", splitList(value))} multiline wide />
+      <TextField label="Image URL" value={serviceForm.imageUrl} onChange={(value) => updateService("imageUrl", value)} wide />
+      <Field label="Upload service image" wide><input type="file" accept="image/*" onChange={(event) => {
+        const file = event.currentTarget.files?.[0];
+        if (file) void upload(file, (asset) => updateService("imageUrl", asset.url));
+        event.currentTarget.value = "";
+      }} /></Field>
+      <TextField label="Display order" type="number" value={String(serviceForm.order)} onChange={(value) => updateService("order", Number(value) || 0)} />
+      <TextField label="SEO title" value={serviceForm.seoTitle} onChange={(value) => updateService("seoTitle", value)} />
+      <TextField label="SEO meta description" value={serviceForm.seoDescription} onChange={(value) => updateService("seoDescription", value)} wide />
+      <label className="cms-checkbox"><input type="checkbox" checked={serviceForm.published} onChange={(event) => updateService("published", event.target.checked)} /> Published</label>
+      <div className="cms-form-actions"><button type="submit" style={primaryStyle} disabled={busy}>{busy ? "SAVING..." : editingServiceSlug ? "SAVE SERVICE" : "CREATE SERVICE"}</button><button type="button" style={buttonStyle} onClick={() => { if (JSON.stringify(serviceForm) !== serviceBaseline && !window.confirm("Discard your unsaved service changes?")) return; setServiceForm(EMPTY_SERVICE); setServiceBaseline(JSON.stringify(EMPTY_SERVICE)); setEditingServiceSlug(undefined); }}>CLEAR</button></div>
+    </form>
+  );
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.98)", zIndex: 200, overflowY: "auto" }}>
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "48px 32px" }}>
+    <main className="cms-page">
+      <div className="cms-shell">
+        <header className="cms-header">
+          <div><p className="cms-kicker">TEKWORLD ADMIN</p><h1>Content studio</h1></div>
+          <div className="cms-header-actions"><span className="cms-muted">{user?.email}</span><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes and sign out?")) return; void signOutAdmin(); }}>SIGN OUT</button><a className="cms-back-link" href="/">VIEW WEBSITE ↗</a></div>
+        </header>
+        {status && <div className={status.includes("failed") || status.includes("Could not") ? "cms-notice is-error" : "cms-notice"} role="status">{status}<button onClick={() => setStatus("")} aria-label="Dismiss message">×</button></div>}
+        {uploadProgress !== undefined && <progress className="cms-upload-progress" value={uploadProgress} max={100} aria-label={`Image upload ${uploadProgress}% complete`}>{uploadProgress}%</progress>}
+        <div className="cms-layout">
+          <nav className="cms-sidebar" aria-label="Admin sections">
+            {SECTIONS.map((item) => <button key={item.id} className={section === item.id ? "is-active" : ""} onClick={() => changeSection(item.id)}>{item.label}</button>)}
+          </nav>
+          <main className="cms-main">
+            {!authorized ? (
+              <section className="cms-access-state" role="status" aria-live="polite">
+                <p className="cms-kicker">SIGNED IN</p>
+                <h2>Welcome to the CMS.</h2>
+                <p>{authLoading
+                  ? "Checking administrator access with Firebase…"
+                  : status || "The dashboard is ready. Firebase must confirm administrator access before content can be viewed or changed."}</p>
+                {!authLoading && <button style={buttonStyle} onClick={() => void checkAdministratorAccess(user)}>RETRY ACCESS CHECK</button>}
+              </section>
+            ) : <>
+            {busy && <p className="cms-muted" role="status">Loading…</p>}
+            {section === "overview" && <section><p className="cms-kicker">OVERVIEW</p><h2>Welcome back.</h2><div className="cms-stat-grid">
+              {[["Published projects", projectCounts.published], ["Drafts", projectCounts.drafts], ["Services", projectCounts.services], ["New enquiries", projectCounts.enquiries]].map(([label, count]) => <article className="cms-stat" key={label}><span>{label}</span><strong>{count}</strong></article>)}
+            </div><h3 className="cms-subheading">Recent updates</h3>{[...projects].sort((first, second) => (second.updatedAt?.toMillis() ?? 0) - (first.updatedAt?.toMillis() ?? 0)).slice(0, 5).map((project) => <div className="cms-list-row" key={project.slug}><span>{project.title}</span><span className="cms-muted">{project.status}</span></div>)}</section>}
 
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 40 }}>
-          <div>
-            <div style={{ fontFamily: "Georgia, serif", fontSize: 28, fontWeight: 700, color: "#ffffff" }}>CMS Panel</div>
-            <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, color: "#444444", letterSpacing: "3px", marginTop: 4 }}>TEKWORLD ADMIN</div>
-          </div>
-          <BtnGhost onClick={onClose}>✕ CLOSE</BtnGhost>
+            {section === "projects" && <section><p className="cms-kicker">OUR WORK</p><h2>{editingProjectSlug ? "Edit project" : "Projects"}</h2>
+              {renderProjectEditor()}
+              <h3 className="cms-subheading">Projects ({projects.length})</h3>
+              {projects.map((project) => <article className="cms-list-row cms-project-row" key={project.slug}>
+                <div>{project.coverImage && <img src={project.coverImage} alt="" />}<span>{project.title}<small>{project.slug} · {project.status} · order {project.order}</small></span></div>
+                <div className="cms-row-actions"><button style={buttonStyle} onClick={() => void toggleFeatured(project)}>{project.featured ? "UNFEATURE" : "FEATURE"}</button><a style={buttonStyle} href={`/work/${encodeURIComponent(project.slug)}`} target="_blank" rel="noreferrer">PREVIEW</a><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...project, services: [...project.services], technologies: [...project.technologies], gallery: [...project.gallery] }; setEditingProjectSlug(project.slug); setProjectForm(next); setProjectBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete "${project.title}"? This cannot be undone.`)) return; try { await removeProject(project.slug); await refresh(); notify("Project deleted."); } catch (error) { notify(`Could not delete project: ${friendlyError(error)}`); } }}>DELETE</button></div>
+              </article>)}
+            </section>}
+
+            {section === "services" && <section><p className="cms-kicker">OFFERINGS</p><h2>{editingServiceSlug ? "Edit service" : "Services"}</h2>
+              <div className="cms-form-actions" style={{ marginBottom: 20 }}><button style={buttonStyle} onClick={async () => { setBusy(true); try { const count = await seedDefaultServices(SERVICES); await refresh(); notify(count ? `${count} starter services added. Review and publish them as needed.` : "Starter services already exist."); } catch (error) { notify(`Could not initialize services: ${friendlyError(error)}`); } finally { setBusy(false); } }}>ADD EXISTING TEKWORLD SERVICES</button></div>
+              {renderServiceEditor()}
+              <h3 className="cms-subheading">Services ({services.length})</h3>
+              {services.map((service) => <article className="cms-list-row" key={service.slug}><span>{service.title}<small>{service.price} {service.priceNote} · {service.published ? "published" : "draft"}</small></span><div className="cms-row-actions"><button style={buttonStyle} onClick={() => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; const next = { ...service }; setEditingServiceSlug(service.slug); setServiceForm(next); setServiceBaseline(JSON.stringify(next)); window.scrollTo({ top: 0 }); }}>EDIT</button><button style={buttonStyle} onClick={async () => { if (hasUnsavedChanges && !window.confirm("Discard your unsaved editor changes?")) return; if (!window.confirm(`Delete service "${service.title}"?`)) return; try { await removeService(service.slug); await refresh(); notify("Service deleted."); } catch (error) { notify(`Could not delete service: ${friendlyError(error)}`); } }}>DELETE</button></div></article>)}
+            </section>}
+
+            {section === "homepage" && <section><p className="cms-kicker">PAGES & HOMEPAGE</p><h2>Homepage content</h2><form className="cms-form-grid" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { await saveHomepageContent(homepage); notify("Homepage content saved."); } catch (error) { notify(`Could not save homepage: ${friendlyError(error)}`); } finally { setBusy(false); } }}>
+              <TextField label="Eyebrow" value={homepage.eyebrow} onChange={(value) => setHomepage((current) => ({ ...current, eyebrow: value }))} wide />
+              <TextField label="Headline" value={homepage.headline} onChange={(value) => setHomepage((current) => ({ ...current, headline: value }))} wide />
+              <TextField label="Description" value={homepage.description} onChange={(value) => setHomepage((current) => ({ ...current, description: value }))} multiline wide />
+              <Field label="Featured projects" wide><div className="cms-feature-list">{projects.filter((project) => project.status === "published").map((project) => <label key={project.id}><input type="checkbox" checked={homepage.featuredProjectIds.includes(project.id)} onChange={(event) => setHomepage((current) => ({ ...current, featuredProjectIds: event.target.checked ? [...current.featuredProjectIds, project.id] : current.featuredProjectIds.filter((id) => id !== project.id) }))} /> {project.title}</label>)}</div></Field>
+              <div className="cms-form-actions"><button style={primaryStyle} type="submit" disabled={busy}>SAVE HOMEPAGE</button></div>
+            </form><p className="cms-muted">Homepage messaging defaults to the existing TekWorld positioning until you save changes. Service and project content remains controlled from its own sections.</p></section>}
+
+            {section === "media" && <section><p className="cms-kicker">ASSETS</p><h2>Media library</h2><Field label="Upload images" wide><input type="file" accept="image/*" multiple onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); files.forEach((file) => void upload(file, () => undefined)); event.currentTarget.value = ""; }} /></Field><div className="cms-media-grid">{media.map((asset) => <article key={asset.path}><img src={asset.url} alt={asset.name} /><p>{asset.name}</p><button style={buttonStyle} onClick={() => void navigator.clipboard.writeText(asset.url).then(() => notify("Media URL copied."))}>COPY URL</button><button style={buttonStyle} onClick={async () => { if (!window.confirm(`Delete ${asset.name}? References to this file will no longer work.`)) return; try { await removeMedia(asset.path); setMedia((current) => current.filter((item) => item.path !== asset.path)); notify("Media deleted."); } catch (error) { notify(`Could not delete media: ${friendlyError(error)}`); } }}>DELETE</button></article>)}</div>{!media.length && <p className="cms-muted">No uploads yet. Images up to 10 MB are accepted.</p>}</section>}
+
+            {section === "enquiries" && <section><p className="cms-kicker">INBOX</p><h2>Messages & enquiries</h2>{enquiries.map((enquiry) => <article className="cms-enquiry" key={enquiry.id}><div className="cms-list-row"><strong>{enquiry.name}</strong><span className="cms-muted">{enquiry.status}</span></div><a href={`mailto:${encodeURIComponent(enquiry.email)}`}>{enquiry.email}</a><p>{enquiry.service}</p><p>{enquiry.message}</p><div className="cms-row-actions"><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, enquiry.status === "new" ? "read" : "new"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>{enquiry.status === "new" ? "MARK READ" : "MARK NEW"}</button><button style={buttonStyle} onClick={async () => { try { await updateEnquiryStatus(enquiry.id, "archived"); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>ARCHIVE</button><button style={buttonStyle} onClick={async () => { if (!window.confirm("Delete this enquiry?")) return; try { await deleteEnquiry(enquiry.id); await refresh(); } catch (error) { notify(friendlyError(error)); } }}>DELETE</button></div></article>)}{!enquiries.length && <p className="cms-muted">No enquiries received yet.</p>}</section>}
+
+            {section === "settings" && <section><p className="cms-kicker">SECURITY & CONFIGURATION</p><h2>Settings</h2><p>Signed in as <strong>{user?.email}</strong></p><p className="cms-muted">Admin access is authorized by a read-only Firestore document at <code>admins/{user?.uid}</code>. Firestore and Storage security rules enforce administrator access independently from this interface.</p><p className="cms-muted">Configure Firebase Authentication Email/Password, enable Firestore and Storage, provision your admin UID from a trusted Firebase Console or server-side process, and deploy the repository security rules before using content operations.</p><p className="cms-muted">Legacy Supabase data is not deleted or modified. Export/import it separately before retiring that project.</p></section>}
+            </>}
+          </main>
         </div>
-
-        {/* Status */}
-        {status && (
-          <div style={{
-            background: status.startsWith("✓") ? "#0a2a0a" : "#2a0a0a",
-            border: `1px solid ${status.startsWith("✓") ? "#1a4a1a" : "#4a1a1a"}`,
-            color: status.startsWith("✓") ? "#66ee66" : "#ff8888",
-            padding: "12px 16px", marginBottom: 24,
-            fontFamily: "system-ui, sans-serif", fontSize: 13,
-          }}>
-            {status}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 2, marginBottom: 32, background: "#111111", padding: 4 }}>
-          {(["config", "companies", "stories", "sql"] as Tab[]).map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              background: tabBg(t), color: tabColor(t), border: "none",
-              padding: "10px 20px", cursor: "pointer",
-              fontFamily: "system-ui, sans-serif", fontSize: 11, letterSpacing: "2px", fontWeight: 600,
-              transition: "background 0.2s, color 0.2s",
-            }}>
-              {t.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        {/* ── CONFIG ── */}
-        {tab === "config" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#666666", lineHeight: 1.7 }}>
-              Connect your Supabase project. Get credentials from{" "}
-              <span style={{ color: "#aaaaaa" }}>supabase.com → Project Settings → API</span>.
-            </p>
-            <Field label="SUPABASE URL">
-              <DarkInput value={sbUrl} onChange={setSbUrl} placeholder="https://xxxx.supabase.co" />
-            </Field>
-            <Field label="ANON KEY">
-              <DarkInput value={sbKey} onChange={setSbKey} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
-            </Field>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <BtnPrimary onClick={handleSaveConfig}>SAVE CONFIG</BtnPrimary>
-              <BtnGhost onClick={handleTest} disabled={loading} style={{ color: "#fff" }}>
-                {loading ? "TESTING..." : "TEST CONNECTION"}
-              </BtnGhost>
-              {connected && (
-                <BtnPrimary onClick={handleLoad} disabled={loading} style={{ background: "#1a3a1a", color: "#66ee66" }}>
-                  {loading ? "LOADING..." : "LOAD DATA"}
-                </BtnPrimary>
-              )}
-            </div>
-            <div style={{ background: "#111111", border: "1px solid #1a1a1a", padding: "20px 24px", marginTop: 8 }}>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#444444", marginBottom: 8 }}>KEYBOARD SHORTCUT</div>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#aaaaaa" }}>
-                Press{" "}
-                <code style={{ background: "#1a1a1a", padding: "2px 8px", color: "#ffffff", fontFamily: "monospace" }}>Ctrl + Shift + A</code>
-                {" "}anywhere on the site.
-              </div>
-            </div>
-            <div style={{ background: "#111111", border: "1px solid #1a1a1a", padding: "20px 24px" }}>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#444444", marginBottom: 8 }}>DEFAULT PIN</div>
-              <div style={{ fontFamily: "Georgia, serif", fontSize: 22, fontWeight: 700, color: "#ffffff", letterSpacing: "6px" }}>tw2024</div>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: "#444444", marginTop: 6 }}>
-                Change <code style={{ color: "#888" }}>ADMIN_PIN</code> in <code style={{ color: "#888" }}>src/constants.ts</code>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── SQL ── */}
-        {tab === "sql" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <p style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#666666", lineHeight: 1.7 }}>
-              Run this in your Supabase <strong style={{ color: "#aaa" }}>SQL Editor</strong> to create the required tables:
-            </p>
-            <pre style={{
-              background: "#0a0a0a", border: "1px solid #1a1a1a", padding: 24,
-              color: "#888888", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75,
-              overflowX: "auto", whiteSpace: "pre-wrap",
-            }}>
-              {CREATE_TABLES_SQL}
-            </pre>
-            <BtnPrimary onClick={() => { navigator.clipboard?.writeText(CREATE_TABLES_SQL); flash("✓ Copied to clipboard"); }}>
-              COPY SQL
-            </BtnPrimary>
-          </div>
-        )}
-
-        {/* ── COMPANIES ── */}
-        {tab === "companies" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-            <div style={{ background: "#111111", border: "1px solid #1a1a1a", padding: 24 }}>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#555555", fontWeight: 600, marginBottom: 20 }}>ADD COMPANY</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-                <Field label="COMPANY NAME">
-                  <DarkInput value={newCo.name} onChange={(v) => setNewCo((p) => ({ ...p, name: v }))} placeholder="Acme Corp" />
-                </Field>
-                <Field label="INDUSTRY">
-                  <DarkInput value={newCo.industry} onChange={(v) => setNewCo((p) => ({ ...p, industry: v }))} placeholder="Fintech" />
-                </Field>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <Field label="LOGO URL (optional)">
-                  <DarkInput value={newCo.logo_url} onChange={(v) => setNewCo((p) => ({ ...p, logo_url: v }))} placeholder="https://cdn.example.com/logo.png" />
-                </Field>
-              </div>
-              <BtnPrimary onClick={handleAddCompany}>ADD COMPANY</BtnPrimary>
-            </div>
-
-            <div>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#555555", fontWeight: 600, marginBottom: 16 }}>
-                EXISTING ({companies.length})
-              </div>
-              {companies.length === 0 && (
-                <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#444444" }}>
-                  No companies yet. Connect to Supabase and load data, or add one above.
-                </div>
-              )}
-              {companies.map((co) => (
-                <div key={co.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid #1a1a1a" }}>
-                  <div>
-                    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 14, color: "#ffffff" }}>{co.name}</div>
-                    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: "#555555", marginTop: 2 }}>{co.industry}</div>
-                  </div>
-                  <BtnGhost style={{ padding: "6px 14px" }} onClick={() => handleDeleteCompany(co.id)}>DELETE</BtnGhost>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── STORIES ── */}
-        {tab === "stories" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-            <div style={{ background: "#111111", border: "1px solid #1a1a1a", padding: 24 }}>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#555555", fontWeight: 600, marginBottom: 20 }}>ADD SUCCESS STORY</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-                <Field label="STORY TITLE">
-                  <DarkInput value={newSt.title} onChange={(v) => setNewSt((p) => ({ ...p, title: v }))} placeholder="How we 10x'd their leads" />
-                </Field>
-                <Field label="COMPANY NAME">
-                  <DarkInput value={newSt.company_name} onChange={(v) => setNewSt((p) => ({ ...p, company_name: v }))} placeholder="Client name" />
-                </Field>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <Field label="DESCRIPTION (preview shown on site)">
-                  <textarea
-                    value={newSt.description}
-                    onChange={(e) => setNewSt((p) => ({ ...p, description: e.target.value }))}
-                    rows={3}
-                    placeholder="Brief summary of what was achieved..."
-                    className="dark-input"
-                    style={{ resize: "vertical" }}
-                  />
-                </Field>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 16 }}>
-                <Field label="PLATFORM">
-                  <select
-                    value={newSt.platform}
-                    onChange={(e) => setNewSt((p) => ({ ...p, platform: e.target.value as Platform }))}
-                    className="dark-input"
-                  >
-                    {(["linkedin","facebook","twitter","instagram","website","other"] as Platform[]).map((p) => (
-                      <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="POST / PAGE LINK">
-                  <DarkInput value={newSt.link} onChange={(v) => setNewSt((p) => ({ ...p, link: v }))} placeholder="https://linkedin.com/posts/..." />
-                </Field>
-              </div>
-              <BtnPrimary onClick={handleAddStory}>ADD STORY</BtnPrimary>
-            </div>
-
-            <div>
-              <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 10, letterSpacing: "2px", color: "#555555", fontWeight: 600, marginBottom: 16 }}>
-                EXISTING ({stories.length})
-              </div>
-              {stories.length === 0 && (
-                <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 13, color: "#444444" }}>
-                  No stories yet. Add one above.
-                </div>
-              )}
-              {stories.map((s) => (
-                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "16px 0", borderBottom: "1px solid #1a1a1a", gap: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "Georgia, serif", fontSize: 16, fontWeight: 700, color: "#ffffff", marginBottom: 4 }}>{s.title}</div>
-                    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 11, color: "#555555", marginBottom: 6 }}>{s.company_name} · {s.platform}</div>
-                    <div style={{ fontFamily: "system-ui, sans-serif", fontSize: 12, color: "#444444", lineHeight: 1.5 }}>
-                      {s.description?.slice(0, 120)}{(s.description?.length ?? 0) > 120 ? "…" : ""}
-                    </div>
-                  </div>
-                  <BtnGhost style={{ padding: "6px 14px", flexShrink: 0 }} onClick={() => handleDeleteStory(s.id)}>DELETE</BtnGhost>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <footer className="cms-footer"><span>{busy ? "Working…" : "Changes save directly to Firebase."}</span><button style={buttonStyle} onClick={() => void refresh()}>REFRESH CONTENT</button></footer>
       </div>
-    </div>
+    </main>
   );
 };
