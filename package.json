@@ -2,7 +2,7 @@
   "name": "tekworld",
   "version": "1.0.0",
   "private": true,
-  "homepage": "https://tekworld.com",
+  "homepage": "https://tekworld.co.ke",
   "type": "module",
   "scripts": {
     "dev": "vite",
